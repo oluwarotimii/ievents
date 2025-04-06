@@ -9,7 +9,8 @@ import { useToast } from "@/hooks/use-toast"
 import type { FormField } from "@/event-form-builder/types"
 import ShareFormLink from "@/components/share-form-link"
 import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
-import { CheckCircle2, Loader2 } from "lucide-react"
+import { initializeFormPayment } from "@/app/actions/payment-actions"
+import { CheckCircle2, Loader2, CreditCard } from "lucide-react"
 
 export default function ViewFormPage({ params }: { params: { code: string } }) {
   // Unwrap the params object using React.use()
@@ -22,10 +23,16 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   const [submitting, setSubmitting] = useState(false)
   const [formExists, setFormExists] = useState(false)
   const [formValues, setFormValues] = useState<Record<string, any>>({})
+  const [collectsPayments, setCollectsPayments] = useState(false)
+  const [paymentAmount, setPaymentAmount] = useState<number | null>(null)
+  const [paymentTitle, setPaymentTitle] = useState<string | null>(null)
+  const [paymentDescription, setPaymentDescription] = useState<string | null>(null)
+  const [processingPayment, setProcessingPayment] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
   const [submissionSuccess, setSubmissionSuccess] = useState(false)
   const [submittedData, setSubmittedData] = useState<Record<string, any>>({})
+  const [responseId, setResponseId] = useState<number | null>(null)
 
   useEffect(() => {
     loadForm()
@@ -52,6 +59,10 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         setFormFields(form.fields || [])
         setFormName(form.name || "Event Registration Form")
         setFormExists(true)
+        setCollectsPayments(form.collectsPayments || false)
+        setPaymentAmount(form.paymentAmount)
+        setPaymentTitle(form.paymentTitle)
+        setPaymentDescription(form.paymentDescription)
       } else {
         toast({
           title: "Event Not Found",
@@ -94,9 +105,15 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
 
       // Store the submitted data for the success screen
       setSubmittedData({ ...formValues })
+      setResponseId(result.responseId)
 
-      // Show success screen
-      setSubmissionSuccess(true)
+      // If the form collects payments, redirect to payment
+      if (collectsPayments && paymentAmount) {
+        await handlePayment(result.responseId)
+      } else {
+        // Show success screen
+        setSubmissionSuccess(true)
+      }
     } catch (error) {
       console.error("Error submitting form:", error)
       toast({
@@ -106,6 +123,52 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       })
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handlePayment = async (responseId: number) => {
+    setProcessingPayment(true)
+
+    try {
+      // Get email and name from form values
+      let email = ""
+      let name = ""
+
+      for (const field of formFields) {
+        const value = formValues[field.id]
+        if (field.type === "email" && value) {
+          email = value
+        }
+        if (field.label.toLowerCase().includes("name") && value) {
+          name = value
+        }
+      }
+
+      if (!email) {
+        throw new Error("Email is required for payment")
+      }
+
+      // Initialize payment
+      const paymentResult = await initializeFormPayment(code, email, name, responseId)
+
+      if (!paymentResult.success) {
+        throw new Error(paymentResult.message || "Failed to initialize payment")
+      }
+
+      // Redirect to payment page
+      window.location.href = paymentResult.paymentUrl
+    } catch (error) {
+      console.error("Error processing payment:", error)
+      toast({
+        title: "Payment Error",
+        description: error instanceof Error ? error.message : "Failed to process payment. Please try again.",
+        variant: "destructive",
+      })
+
+      // Show success screen anyway, they can try payment again later
+      setSubmissionSuccess(true)
+    } finally {
+      setProcessingPayment(false)
     }
   }
 
@@ -130,6 +193,12 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     return "there"
   }
 
+  // Calculate platform fee (2% capped at ₦200)
+  const calculatePlatformFee = (amount: number): number => {
+    const fee = amount * 0.02
+    return Math.min(fee, 200) // Cap at ₦200
+  }
+
   if (loading) {
     return (
       <div className="container flex items-center justify-center min-h-screen">
@@ -143,7 +212,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     return null // Will redirect in useEffect
   }
 
-  // If submission was successful, show success screen
+  // If submission was successful
   if (submissionSuccess) {
     const firstName = getFirstName(submittedData)
 
@@ -160,7 +229,48 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
             </div>
             <h2 className="text-2xl font-bold text-center mb-2">Thank You, {firstName}!</h2>
             <p className="text-center text-muted-foreground mb-4">Your registration has been successfully submitted.</p>
-            <p className="text-center text-muted-foreground">
+
+            {collectsPayments && paymentAmount && responseId && (
+              <div className="w-full mt-4">
+                <Card className="bg-blue-50 border-blue-100">
+                  <CardContent className="pt-6">
+                    <h3 className="font-medium text-blue-800 mb-2">Payment Required</h3>
+                    <p className="text-sm text-blue-700 mb-4">
+                      Please complete your payment to confirm your registration.
+                    </p>
+                    <div className="bg-white p-3 rounded-md mb-4">
+                      <div className="flex justify-between mb-1">
+                        <span className="text-sm">Base Amount:</span>
+                        <span>₦{paymentAmount.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between mb-1">
+                        <span className="text-sm">Platform Fee (2%):</span>
+                        <span>₦{calculatePlatformFee(paymentAmount).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between font-medium border-t border-blue-100 pt-1 mt-1">
+                        <span>Total:</span>
+                        <span>₦{(paymentAmount + calculatePlatformFee(paymentAmount)).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <Button className="w-full" onClick={() => handlePayment(responseId)} disabled={processingPayment}>
+                      {processingPayment ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard className="h-4 w-4 mr-2" />
+                          Pay Now
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            <p className="text-center text-muted-foreground mt-4">
               You will receive a confirmation email shortly with all the event details.
             </p>
           </CardContent>
@@ -170,6 +280,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               onClick={() => {
                 setSubmissionSuccess(false)
                 setFormValues({})
+                setResponseId(null)
               }}
             >
               Register Another Person
@@ -327,7 +438,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               />
               <select
                 className="p-2 border rounded-md"
-                value={formValues[field.id]?.currency || "USD"}
+                value={formValues[field.id]?.currency || "NGN"}
                 onChange={(e) =>
                   handleInputChange(field.id, {
                     ...formValues[field.id],
@@ -335,9 +446,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                   })
                 }
               >
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GBP">GBP</option>
+                <option value="NGN">NGN</option>
               </select>
             </div>
           </div>
@@ -348,8 +457,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   }
 
   return (
-    <div className="container mx-auto py-8">
-      <Card className="mb-6">
+    <div className="container mx-auto py-8 px-4 max-w-md">
+      <Card>
         <CardHeader>
           <CardTitle>{formName}</CardTitle>
           <CardDescription>Event Code: {code}</CardDescription>
@@ -361,6 +470,30 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
             {formFields.map((field) => (
               <div key={field.id}>{renderField(field)}</div>
             ))}
+
+            {collectsPayments && paymentAmount && (
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-md">
+                <h3 className="font-medium text-blue-800 mb-2">{paymentTitle || "Payment Required"}</h3>
+                <p className="text-sm text-blue-700 mb-3">
+                  {paymentDescription || "Payment is required for this event."}
+                </p>
+
+                <div className="bg-white p-3 rounded-md">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm">Base Amount:</span>
+                    <span>₦{paymentAmount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm">Platform Fee (2%):</span>
+                    <span>₦{calculatePlatformFee(paymentAmount).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between font-medium border-t border-blue-100 pt-1 mt-1">
+                    <span>Total:</span>
+                    <span>₦{(paymentAmount + calculatePlatformFee(paymentAmount)).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? (

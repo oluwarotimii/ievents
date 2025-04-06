@@ -20,6 +20,7 @@ import {
   Loader2,
   RefreshCw,
   AlertTriangle,
+  Mail,
 } from "lucide-react"
 import { format } from "date-fns"
 import { Badge } from "@/components/ui/badge"
@@ -277,6 +278,11 @@ export default function DashboardPage() {
                           <Button variant="ghost" size="icon" asChild>
                             <Link href={`/manual-check-in/${form.code}`} title="Manual Check-In">
                               <UserCheck className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                          <Button variant="ghost" size="icon" asChild>
+                            <Link href={`/email-manager/${form.code}`} title="Email Manager">
+                              <Mail className="h-4 w-4" />
                             </Link>
                           </Button>
                           <Button

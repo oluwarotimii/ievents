@@ -166,15 +166,86 @@ export async function getFormByCode(code: string) {
   }
 }
 
+/**
+ * Check if an email has already been used for registration
+ */
+export async function checkDuplicateRegistration(code: string, email: string): Promise<boolean> {
+  try {
+    // Find the form
+    const form = await prisma.form.findUnique({
+      where: { code },
+      include: {
+        fields: {
+          where: {
+            type: "email",
+          },
+        },
+      },
+    })
+
+    if (!form) {
+      throw new Error("Form not found")
+    }
+
+    // Get email field IDs
+    const emailFieldIds = form.fields.map((field) => field.fieldId)
+
+    if (emailFieldIds.length === 0) {
+      // No email fields in the form, can't check for duplicates
+      return false
+    }
+
+    // Check for existing responses with this email
+    const existingResponses = await prisma.response.findMany({
+      where: {
+        formId: form.id,
+        data: {
+          some: {
+            fieldId: {
+              in: emailFieldIds,
+            },
+            value: email,
+          },
+        },
+      },
+    })
+
+    return existingResponses.length > 0
+  } catch (error) {
+    console.error("Error checking duplicate registration:", error)
+    throw new Error("Failed to check duplicate registration")
+  }
+}
+
 // Submit form response
 export async function submitFormResponse(code: string, formData: Record<string, any>) {
   try {
     const form = await prisma.form.findUnique({
       where: { code },
+      include: {
+        fields: true,
+      },
     })
 
     if (!form) {
       throw new Error("Form not found")
+    }
+
+    // Check for email fields in the form data
+    const emailFields = form.fields.filter((field) => field.type === "email")
+
+    for (const emailField of emailFields) {
+      const email = formData[emailField.fieldId]
+      if (email) {
+        // Check if this email has already been used
+        const isDuplicate = await checkDuplicateRegistration(code, email)
+        if (isDuplicate) {
+          return {
+            success: false,
+            message: "This email has already been registered for this event.",
+          }
+        }
+      }
     }
 
     // Create response
@@ -189,6 +260,9 @@ export async function submitFormResponse(code: string, formData: Record<string, 
         },
       },
     })
+
+    // Send confirmation email (commented out)
+    // await sendRegistrationConfirmationEmail(response.id, code)
 
     revalidatePath(`/responses/${code}`)
     return { success: true, responseId: response.id }

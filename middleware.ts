@@ -1,6 +1,3 @@
-// Remove the runtime directive since we're not using Node.js features here
-// export const runtime = 'nodejs'
-
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
@@ -16,6 +13,7 @@ const publicPaths = [
   "/check-in",
   "/pricing",
   "/api", // Allow API routes to be accessed
+  "/s", // Allow short URL redirects
 ]
 
 export async function middleware(request: NextRequest) {

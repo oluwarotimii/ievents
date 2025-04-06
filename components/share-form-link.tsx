@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Copy, Check } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { createEventShareUrls } from "@/app/actions/url-actions"
 
 interface ShareFormLinkProps {
   code: string
@@ -13,10 +14,33 @@ interface ShareFormLinkProps {
 
 export default function ShareFormLink({ code }: ShareFormLinkProps) {
   const [copied, setCopied] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [formUrl, setFormUrl] = useState("")
   const { toast } = useToast()
 
-  // Generate the full URL for sharing
-  const formUrl = typeof window !== "undefined" ? `${window.location.origin}/view/${code}` : `/view/${code}`
+  useEffect(() => {
+    async function loadShareUrls() {
+      try {
+        setLoading(true)
+        const result = await createEventShareUrls(code)
+
+        if (result.success) {
+          setFormUrl(result.viewUrl)
+        } else {
+          // Fallback to regular URL if shortening fails
+          setFormUrl(`${window.location.origin}/view/${code}`)
+        }
+      } catch (error) {
+        console.error("Error loading share URLs:", error)
+        // Fallback to regular URL
+        setFormUrl(`${window.location.origin}/view/${code}`)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadShareUrls()
+  }, [code])
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(formUrl)
@@ -38,8 +62,8 @@ export default function ShareFormLink({ code }: ShareFormLinkProps) {
           <p className="text-sm font-medium">Share this form with others using this link or code:</p>
 
           <div className="flex items-center space-x-2">
-            <Input value={formUrl} readOnly className="flex-1" />
-            <Button variant="outline" size="icon" onClick={handleCopyLink} className="flex-shrink-0">
+            <Input value={loading ? "Generating link..." : formUrl} readOnly className="flex-1" disabled={loading} />
+            <Button variant="outline" size="icon" onClick={handleCopyLink} className="flex-shrink-0" disabled={loading}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </Button>
           </div>

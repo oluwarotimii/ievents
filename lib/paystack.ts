@@ -45,20 +45,32 @@ export async function initializeTransaction(
   reference: string,
   callbackUrl: string,
   metadata: Record<string, any> = {},
+  subaccount?: string,
 ): Promise<PaystackInitializeResponse> {
+  const payload: any = {
+    email,
+    amount: amount * 100, // Paystack expects amount in kobo (smallest currency unit)
+    reference,
+    callback_url: callbackUrl,
+    metadata,
+    currency: "NGN", // Only supporting Naira
+  }
+
+  // If subaccount is provided, add split payment details
+  if (subaccount) {
+    payload.subaccount = subaccount
+    // The subaccount gets the base amount, platform fee is kept by the main account
+    payload.transaction_charge = 0 // No additional charge from Paystack
+    payload.bearer = "account" // The main account bears the transaction fee
+  }
+
   const response = await fetch("https://api.paystack.co/transaction/initialize", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      email,
-      amount: amount * 100, // Paystack expects amount in kobo (smallest currency unit)
-      reference,
-      callback_url: callbackUrl,
-      metadata,
-    }),
+    body: JSON.stringify(payload),
   })
 
   if (!response.ok) {
@@ -90,6 +102,54 @@ export function verifyWebhookSignature(signature: string, payload: string): bool
 
 export function generateTransactionReference(): string {
   return `EVT_${Date.now()}_${Math.floor(Math.random() * 1000000)}`
+}
+
+// Create a subaccount for an event organizer
+export async function createSubaccount(
+  businessName: string,
+  settlementBank: string,
+  accountNumber: string,
+  description: string,
+  email: string,
+): Promise<any> {
+  const response = await fetch("https://api.paystack.co/subaccount", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      business_name: businessName,
+      settlement_bank: settlementBank,
+      account_number: accountNumber,
+      percentage_charge: 100, // 100% goes to the subaccount, platform fee is handled separately
+      description,
+      primary_contact_email: email,
+      primary_contact_name: businessName,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to create subaccount: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+// List banks supported by Paystack
+export async function listBanks(): Promise<any> {
+  const response = await fetch("https://api.paystack.co/bank?country=nigeria", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch banks: ${response.statusText}`)
+  }
+
+  return response.json()
 }
 
 export { PAYSTACK_PUBLIC_KEY }

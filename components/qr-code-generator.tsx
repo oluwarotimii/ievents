@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Download, Copy, Check } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { shortenUrl } from "@/app/actions/url-actions"
 
 interface QRCodeGeneratorProps {
   url: string
@@ -15,15 +16,30 @@ interface QRCodeGeneratorProps {
 
 export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGeneratorProps) {
   const [copied, setCopied] = useState(false)
+  const [shortUrl, setShortUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
   const qrRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
-  // Responsive size calculation
-  const responsiveSize =
-    typeof window !== "undefined" && window.innerWidth < 640 ? Math.min(window.innerWidth - 80, size) : size
+  useEffect(() => {
+    async function createShortUrl() {
+      try {
+        const shortened = await shortenUrl(url)
+        setShortUrl(shortened)
+      } catch (error) {
+        console.error("Error shortening URL:", error)
+        setShortUrl(url) // Fallback to original URL
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    createShortUrl()
+  }, [url])
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(url)
+    const urlToCopy = shortUrl || url
+    navigator.clipboard.writeText(urlToCopy)
     setCopied(true)
     toast({
       title: "Link Copied",
@@ -47,8 +63,8 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
     if (!ctx) return
 
     // Set canvas dimensions
-    canvas.width = responsiveSize
-    canvas.height = responsiveSize
+    canvas.width = size
+    canvas.height = size
 
     // Create an image from the SVG
     const img = new Image()
@@ -82,20 +98,31 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
   return (
     <Card className="w-full">
       <CardContent className="pt-6 flex flex-col items-center">
-        <div ref={qrRef} className="bg-white p-4 rounded-lg mb-4">
-          <QRCodeSVG value={url} size={responsiveSize} />
-        </div>
+        {loading ? (
+          <div
+            className="bg-white p-4 rounded-lg mb-4 flex items-center justify-center"
+            style={{ width: size, height: size }}
+          >
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+          </div>
+        ) : (
+          <div ref={qrRef} className="bg-white p-4 rounded-lg mb-4">
+            <QRCodeSVG value={shortUrl || url} size={size} />
+          </div>
+        )}
 
         {title && <p className="text-center font-medium mb-2">{title}</p>}
 
-        <p className="text-sm text-muted-foreground mb-4 text-center break-all px-2">{url}</p>
+        <p className="text-sm text-muted-foreground mb-4 text-center break-all">
+          {loading ? "Generating shortened URL..." : shortUrl || url}
+        </p>
 
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <Button variant="outline" size="sm" onClick={handleCopyLink} className="w-full sm:w-auto">
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleCopyLink} disabled={loading}>
             {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
             Copy Link
           </Button>
-          <Button variant="outline" size="sm" onClick={handleDownload} className="w-full sm:w-auto">
+          <Button variant="outline" size="sm" onClick={handleDownload} disabled={loading}>
             <Download className="h-4 w-4 mr-2" />
             Download QR
           </Button>
