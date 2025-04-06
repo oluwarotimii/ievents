@@ -1,0 +1,84 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                        Int       @id @default(autoincrement())
+  username                  String    @unique
+  email                     String    @unique
+  passwordHash              String    @map("password_hash")
+  emailVerified             Boolean   @default(false) @map("email_verified")
+  verificationToken         String?   @map("verification_token")
+  verificationTokenExpires  DateTime? @map("verification_token_expires") @db.Timestamptz
+  resetPasswordToken        String?   @map("reset_password_token")
+  resetPasswordTokenExpires DateTime? @map("reset_password_token_expires") @db.Timestamptz
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                 DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+  forms                     Form[]
+
+  @@map("users")
+}
+
+model Form {
+  id        Int         @id @default(autoincrement())
+  code      String      @unique @db.VarChar(4)
+  name      String
+  userId    Int         @map("user_id")
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String?
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime    @default(now()) @map("updated_at") @db.Timestamptz
+  fields    FormField[]
+  responses Response[]
+
+  @@map("forms")
+}
+
+model FormField {
+  id        Int      @id @default(autoincrement())
+  formId    Int      @map("form_id")
+  form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  fieldId   String   @map("field_id")
+  type      String
+  label     String
+  required  Boolean  @default(false)
+  options   Json?
+  position  Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@unique([formId, fieldId])
+  @@map("form_fields")
+}
+
+model Response {
+  id          Int            @id @default(autoincrement())
+  formId      Int            @map("form_id")
+  form        Form           @relation(fields: [formId], references: [id], onDelete: Cascade)
+  checkedIn   Boolean        @default(false) @map("checked_in")
+  checkInTime DateTime?      @map("check_in_time") @db.Timestamptz
+  submittedAt DateTime       @default(now()) @map("submitted_at") @db.Timestamptz
+  data        ResponseData[]
+
+  @@map("responses")
+}
+
+model ResponseData {
+  id         Int      @id @default(autoincrement())
+  responseId Int      @map("response_id")
+  response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  fieldId    String   @map("field_id")
+  value      String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("response_data")
+}
+

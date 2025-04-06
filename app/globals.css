@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap");
+
+@layer base {
+  :root {
+    /* Converting your hex colors to HSL for the CSS variables */
+    --background: 220 20% 97%; /* Light Gray: #F4F6F9 */
+    --foreground: 220 47% 20%; /* Navy Blue: #1A2A4A (darker for text) */
+
+    --primary: 220 47% 20%; /* Navy Blue: #1A2A4A */
+    --primary-foreground: 0 0% 100%; /* White text on primary */
+
+    --secondary: 180 46% 43%; /* Teal: #3A9E9F */
+    --secondary-foreground: 0 0% 100%; /* White text on secondary */
+
+    --accent: 122 50% 49%; /* Green: #4CAF50 */
+    --accent-foreground: 0 0% 100%; /* White text on accent */
+
+    --destructive: 0 68% 50%; /* Red: #D32F2F */
+    --destructive-foreground: 0 0% 100%; /* White text on destructive */
+
+    --muted: 220 20% 90%;
+    --muted-foreground: 220 47% 40%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 47% 20%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 47% 20%;
+
+    --border: 220 13% 85%;
+    --input: 220 13% 85%;
+
+    --ring: 220 47% 20%; /* Navy Blue for focus rings */
+
+    /* Hover color */
+    --hover: 214 100% 70%; /* Light Blue: #66B2FF */
+
+    /* Chart colors */
+    --chart-1: 220 47% 20%; /* Navy Blue */
+    --chart-2: 180 46% 43%; /* Teal */
+    --chart-3: 122 50% 49%; /* Green */
+    --chart-4: 214 100% 70%; /* Light Blue */
+    --chart-5: 0 68% 50%; /* Red */
+
+    /* Sidebar colors */
+    --sidebar-background: 220 47% 20%; /* Navy Blue */
+    --sidebar-foreground: 0 0% 100%; /* White text */
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 220 47% 20%;
+    --sidebar-accent: 220 47% 30%; /* Slightly lighter Navy Blue */
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 220 47% 30%;
+    --sidebar-ring: 214 100% 70%; /* Light Blue */
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 220 47% 10%; /* Darker Navy Blue for dark mode background */
+    --foreground: 0 0% 95%; /* Light text for dark mode */
+
+    --primary: 220 47% 25%; /* Slightly lighter Navy Blue for dark mode */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 180 46% 38%; /* Slightly darker Teal for dark mode */
+    --secondary-foreground: 0 0% 100%;
+
+    --accent: 122 50% 45%; /* Slightly darker Green for dark mode */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 68% 45%; /* Slightly darker Red for dark mode */
+    --destructive-foreground: 0 0% 100%;
+
+    --muted: 220 47% 20%;
+    --muted-foreground: 220 20% 70%;
+
+    --card: 220 47% 15%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 220 47% 15%;
+    --popover-foreground: 0 0% 95%;
+
+    --border: 220 47% 25%;
+    --input: 220 47% 25%;
+
+    --ring: 214 100% 70%; /* Light Blue */
+
+    /* Sidebar colors for dark mode */
+    --sidebar-background: 220 47% 15%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 0 0% 95%;
+    --sidebar-primary-foreground: 220 47% 15%;
+    --sidebar-accent: 220 47% 25%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 220 47% 25%;
+    --sidebar-ring: 214 100% 70%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Poppins", Helvetica, Arial, sans-serif;
+  }
+}
+
