@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,33 +8,43 @@ datasource db {
 }
 
 model User {
-  id                        Int       @id @default(autoincrement())
-  username                  String    @unique
-  email                     String    @unique
-  passwordHash              String    @map("password_hash")
-  emailVerified             Boolean   @default(false) @map("email_verified")
-  verificationToken         String?   @map("verification_token")
-  verificationTokenExpires  DateTime? @map("verification_token_expires") @db.Timestamptz
-  resetPasswordToken        String?   @map("reset_password_token")
-  resetPasswordTokenExpires DateTime? @map("reset_password_token_expires") @db.Timestamptz
-  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt                 DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+  id                        Int                 @id @default(autoincrement())
+  username                  String              @unique
+  email                     String              @unique
+  passwordHash              String              @map("password_hash")
+  emailVerified             Boolean             @default(false) @map("email_verified")
+  verificationToken         String?             @map("verification_token")
+  verificationTokenExpires  DateTime?           @map("verification_token_expires") @db.Timestamptz(6)
+  resetPasswordToken        String?             @map("reset_password_token")
+  resetPasswordTokenExpires DateTime?           @map("reset_password_token_expires") @db.Timestamptz(6)
+  createdAt                 DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime            @default(now()) @map("updated_at") @db.Timestamptz(6)
+  email_preferences         email_preferences[]
   forms                     Form[]
+  payment_settings          payment_settings?
+  short_urls                short_urls[]
+  subscriptions             subscriptions?
+  transactions              transactions[]
 
   @@map("users")
 }
 
 model Form {
-  id        Int         @id @default(autoincrement())
-  code      String      @unique @db.VarChar(4)
-  name      String
-  userId    Int         @map("user_id")
-  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category  String?
-  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime    @default(now()) @map("updated_at") @db.Timestamptz
-  fields    FormField[]
-  responses Response[]
+  id                  Int         @id @default(autoincrement())
+  code                String      @unique @db.VarChar(4)
+  name                String
+  userId              Int         @map("user_id")
+  category            String?
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime    @default(now()) @map("updated_at") @db.Timestamptz(6)
+  collects_payments   Boolean     @default(false)
+  payment_amount      Float?
+  payment_currency    String?     @default("NGN")
+  payment_description String?
+  payment_title       String?
+  fields              FormField[]
+  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  responses           Response[]
 
   @@map("forms")
 }
@@ -45,28 +52,29 @@ model Form {
 model FormField {
   id        Int      @id @default(autoincrement())
   formId    Int      @map("form_id")
-  form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
   fieldId   String   @map("field_id")
   type      String
   label     String
   required  Boolean  @default(false)
   options   Json?
   position  Int
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
 
   @@unique([formId, fieldId])
   @@map("form_fields")
 }
 
 model Response {
-  id          Int            @id @default(autoincrement())
-  formId      Int            @map("form_id")
-  form        Form           @relation(fields: [formId], references: [id], onDelete: Cascade)
-  checkedIn   Boolean        @default(false) @map("checked_in")
-  checkInTime DateTime?      @map("check_in_time") @db.Timestamptz
-  submittedAt DateTime       @default(now()) @map("submitted_at") @db.Timestamptz
-  data        ResponseData[]
+  id           Int            @id @default(autoincrement())
+  formId       Int            @map("form_id")
+  checkedIn    Boolean        @default(false) @map("checked_in")
+  checkInTime  DateTime?      @map("check_in_time") @db.Timestamptz(6)
+  submittedAt  DateTime       @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  data         ResponseData[]
+  form         Form           @relation(fields: [formId], references: [id], onDelete: Cascade)
+  transactions transactions?
 
   @@map("responses")
 }
@@ -74,11 +82,139 @@ model Response {
 model ResponseData {
   id         Int      @id @default(autoincrement())
   responseId Int      @map("response_id")
-  response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
   fieldId    String   @map("field_id")
   value      String?
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
 
   @@map("response_data")
 }
 
+model email_preferences {
+  id           Int      @id @default(autoincrement())
+  user_id      Int
+  email        String
+  formCode     String
+  unsubscribed Boolean  @default(false)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+  users        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([email, formCode])
+}
+
+model payment_intents {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  plan_type  PlanType
+  amount     Float
+  currency   String   @default("NGN")
+  reference  String   @unique
+  status     String
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model payment_settings {
+  id                       Int      @id @default(autoincrement())
+  user_id                  Int      @unique
+  business_name            String
+  bank_name                String
+  bank_code                String
+  account_number           String
+  account_name             String
+  paystack_subaccount_id   String?
+  paystack_subaccount_code String?
+  created_at               DateTime @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime @default(now()) @db.Timestamptz(6)
+  users                    User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model payments {
+  id              Int           @id @default(autoincrement())
+  subscription_id Int
+  amount          Float
+  currency        String        @default("NGN")
+  payment_method  String
+  transaction_id  String?
+  status          PaymentStatus
+  payment_date    DateTime      @db.Timestamptz(6)
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime      @default(now()) @db.Timestamptz(6)
+  subscriptions   subscriptions @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
+}
+
+model short_urls {
+  id           String    @id
+  original_url String
+  short_code   String    @unique
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at   DateTime? @db.Timestamptz(6)
+  clicks       Int       @default(0)
+  user_id      Int?
+  users        User?     @relation(fields: [user_id], references: [id])
+}
+
+model subscriptions {
+  id                   Int                @id @default(autoincrement())
+  user_id              Int                @unique
+  plan_type            PlanType
+  status               SubscriptionStatus
+  start_date           DateTime           @db.Timestamptz(6)
+  end_date             DateTime?          @db.Timestamptz(6)
+  cancel_at_period_end Boolean            @default(false)
+  created_at           DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime           @default(now()) @db.Timestamptz(6)
+  payments             payments[]
+  users                User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model transactions {
+  id              Int               @id @default(autoincrement())
+  response_id     Int               @unique
+  user_id         Int
+  amount          Float
+  fee             Float
+  net_amount      Float
+  currency        String            @default("NGN")
+  reference       String            @unique
+  status          TransactionStatus
+  payment_method  String
+  payment_gateway String            @default("paystack")
+  customer_name   String?
+  customer_email  String
+  form_code       String
+  form_name       String
+  payment_date    DateTime?         @db.Timestamptz(6)
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  responses       Response          @relation(fields: [response_id], references: [id], onDelete: Cascade)
+  users           User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PlanType {
+  FREE
+  MONTHLY
+  LIFETIME
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}

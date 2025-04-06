@@ -19,11 +19,13 @@ import {
   UserCheck,
   Loader2,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react"
 import { format } from "date-fns"
 import { Badge } from "@/components/ui/badge"
 import { getUserForms, deleteForm } from "../actions/form-actions"
 import { logoutUser } from "../actions/auth-actions"
+import { getSubscriptionLimits } from "@/lib/subscription"
 
 interface FormData {
   id: number
@@ -42,6 +44,12 @@ export default function DashboardPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [deletingForm, setDeletingForm] = useState<string | null>(null)
   const { toast } = useToast()
+  const [subscriptionInfo, setSubscriptionInfo] = useState<{
+    plan: string
+    formLimit: number | null
+    formCount: number
+    isActive: boolean
+  } | null>(null)
 
   useEffect(() => {
     loadDashboardData()
@@ -52,6 +60,12 @@ export default function DashboardPage() {
     try {
       const userForms = await getUserForms()
       setForms(userForms)
+
+      // Load subscription info
+      // Assuming user object is available globally or can be fetched here
+      const user = { id: "user-id-placeholder" } // Replace with actual user object/id
+      const limits = await getSubscriptionLimits(user.id)
+      setSubscriptionInfo(limits)
     } catch (error) {
       console.error("Error loading forms:", error)
       toast({
@@ -139,6 +153,33 @@ export default function DashboardPage() {
           </div>
         </CardHeader>
         <CardContent>
+          {subscriptionInfo && (
+            <div className="flex justify-between items-center mb-4 p-3 bg-muted rounded-md">
+              <div>
+                <p className="text-sm font-medium">
+                  Current Plan:{" "}
+                  <span className="font-bold">
+                    {subscriptionInfo.plan === "FREE"
+                      ? "Free"
+                      : subscriptionInfo.plan === "MONTHLY"
+                        ? "Monthly"
+                        : "Lifetime"}
+                  </span>
+                </p>
+                {subscriptionInfo.formLimit && (
+                  <p className="text-sm text-muted-foreground">
+                    Forms: {subscriptionInfo.formCount} / {subscriptionInfo.formLimit}
+                  </p>
+                )}
+              </div>
+              <Button variant="outline" asChild>
+                <Link href="/subscription">
+                  {subscriptionInfo.plan === "FREE" ? "Upgrade Plan" : "Manage Subscription"}
+                </Link>
+              </Button>
+            </div>
+          )}
+
           <div className="flex justify-between items-center mb-4">
             <Input
               placeholder="Search forms..."
@@ -146,13 +187,33 @@ export default function DashboardPage() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
             />
-            <Button asChild>
+            <Button
+              asChild
+              disabled={
+                subscriptionInfo?.formLimit !== null && subscriptionInfo?.formCount >= subscriptionInfo?.formLimit
+              }
+            >
               <Link href="/create">
                 <Plus className="h-4 w-4 mr-2" />
                 Create New Form
               </Link>
             </Button>
           </div>
+
+          {subscriptionInfo?.formLimit !== null && subscriptionInfo?.formCount >= subscriptionInfo?.formLimit && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start">
+              <AlertTriangle className="h-5 w-5 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm text-amber-800">
+                  You've reached the maximum number of forms allowed on your current plan.
+                  <Link href="/subscription" className="ml-1 font-medium underline">
+                    Upgrade your plan
+                  </Link>{" "}
+                  to create more forms.
+                </p>
+              </div>
+            </div>
+          )}
 
           {forms.length === 0 ? (
             <div className="text-center py-8">

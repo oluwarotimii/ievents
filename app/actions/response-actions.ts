@@ -1,7 +1,8 @@
-"use server"
-
+import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
-import prisma from "@/lib/prisma"
+import { canReceiveResponse } from "@/lib/subscription"
+
+// Update the submitFormResponse function in response-actions.ts
 
 // Submit form response
 export async function submitFormResponse(code: string, formData: Record<string, any>) {
@@ -23,6 +24,16 @@ export async function submitFormResponse(code: string, formData: Record<string, 
       return {
         success: false,
         message: "Form not found",
+      }
+    }
+
+    // Check if form can receive more responses based on subscription
+    const canReceive = await canReceiveResponse(form.id)
+    if (!canReceive) {
+      return {
+        success: false,
+        message:
+          "This form has reached its maximum number of responses. The form owner needs to upgrade their plan to receive more responses.",
       }
     }
 

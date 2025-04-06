@@ -8,12 +8,8 @@ export default function PricingPage() {
   const router = useRouter()
 
   const handleSelectPlan = (plan: string) => {
-    // In a real implementation, this would redirect to a checkout page
-    // For now, we'll just show what would happen
-    alert(`Selected ${plan} plan. In a real implementation, this would redirect to payment processing.`)
-
-    // After successful payment, redirect to dashboard or form creation
-    // router.push('/dashboard')
+    // Redirect to subscription page
+    router.push("/subscription")
   }
 
   return (

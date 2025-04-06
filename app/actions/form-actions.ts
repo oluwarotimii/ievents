@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import prisma from "@/lib/prisma"
 import { requireAuth } from "@/lib/auth"
 import type { FormField } from "@/event-form-builder/types"
+import { canCreateForm } from "@/lib/subscription"
 
 // Generate a random 4-digit code
 function generateEventCode(): string {
@@ -31,6 +32,14 @@ async function generateUniqueCode(): Promise<string> {
 export async function createForm(formName: string, category: string | null, fields: FormField[]) {
   try {
     const user = await requireAuth()
+
+    // Check if user can create more forms based on subscription
+    const canCreate = await canCreateForm(user.id)
+    if (!canCreate) {
+      throw new Error(
+        "You have reached the maximum number of forms allowed on your current plan. Please upgrade to create more forms.",
+      )
+    }
 
     const code = await generateUniqueCode()
 
@@ -60,7 +69,7 @@ export async function createForm(formName: string, category: string | null, fiel
     return form
   } catch (error) {
     console.error("Error creating form:", error)
-    throw new Error("Failed to create form")
+    throw new Error(error instanceof Error ? error.message : "Failed to create form")
   }
 }
 

@@ -18,6 +18,10 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
   const qrRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
+  // Responsive size calculation
+  const responsiveSize =
+    typeof window !== "undefined" && window.innerWidth < 640 ? Math.min(window.innerWidth - 80, size) : size
+
   const handleCopyLink = () => {
     navigator.clipboard.writeText(url)
     setCopied(true)
@@ -43,8 +47,8 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
     if (!ctx) return
 
     // Set canvas dimensions
-    canvas.width = size
-    canvas.height = size
+    canvas.width = responsiveSize
+    canvas.height = responsiveSize
 
     // Create an image from the SVG
     const img = new Image()
@@ -79,19 +83,19 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
     <Card className="w-full">
       <CardContent className="pt-6 flex flex-col items-center">
         <div ref={qrRef} className="bg-white p-4 rounded-lg mb-4">
-          <QRCodeSVG value={url} size={size} />
+          <QRCodeSVG value={url} size={responsiveSize} />
         </div>
 
         {title && <p className="text-center font-medium mb-2">{title}</p>}
 
-        <p className="text-sm text-muted-foreground mb-4 text-center break-all">{url}</p>
+        <p className="text-sm text-muted-foreground mb-4 text-center break-all px-2">{url}</p>
 
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleCopyLink}>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Button variant="outline" size="sm" onClick={handleCopyLink} className="w-full sm:w-auto">
             {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
             Copy Link
           </Button>
-          <Button variant="outline" size="sm" onClick={handleDownload}>
+          <Button variant="outline" size="sm" onClick={handleDownload} className="w-full sm:w-auto">
             <Download className="h-4 w-4 mr-2" />
             Download QR
           </Button>
