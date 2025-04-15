@@ -1,7 +1,6 @@
 "use client"
 
-import React from "react"
-import { useState, useEffect } from "react"
+import React, { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
@@ -11,11 +10,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { ArrowLeft, Send, Users, Mail, AlertTriangle, Loader2 } from "lucide-react"
 import { sendEventMassEmail, getEmailStatistics } from "@/app/actions/email-actions"
+import EmailManagerLoading from "./loading" // Adjust path if different
 
 export default function EmailManagerPage({ params }: { params: { code: string } }) {
-  // Unwrap the params object using React.use()
-  const unwrappedParams = React.use(params)
-  const { code } = unwrappedParams
+  const { code } = params
 
   const [formName, setFormName] = useState("Event Registration Form")
   const [loading, setLoading] = useState(true)
@@ -31,24 +29,23 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
   const { toast } = useToast()
 
   useEffect(() => {
-    loadData()
+    const email = typeof window !== "undefined" ? sessionStorage.getItem("loggedInEmail") : null
+
+    if (!email) {
+      toast({
+        title: "Not Logged In",
+        description: "Please log in to access email manager.",
+        variant: "destructive",
+      })
+      router.push("/")
+      return
+    }
+
+    loadData(email)
   }, [code])
 
-  const loadData = async () => {
+  const loadData = async (email: string) => {
     try {
-      // Check if user is logged in
-      const email = sessionStorage.getItem("loggedInEmail")
-      if (!email) {
-        toast({
-          title: "Not Logged In",
-          description: "Please log in to access email manager.",
-          variant: "destructive",
-        })
-        router.push("/")
-        return
-      }
-
-      // Validate that code is 4 digits
       if (!/^\d{4}$/.test(code)) {
         toast({
           title: "Invalid Event Code",
@@ -59,7 +56,6 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
         return
       }
 
-      // Check if this user is the creator of this form
       const creatorEmails = localStorage.getItem("formCreators")
         ? JSON.parse(localStorage.getItem("formCreators")!)
         : {}
@@ -74,7 +70,6 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
         return
       }
 
-      // Load form data
       const storedForms = localStorage.getItem("eventForms")
       const forms = storedForms ? JSON.parse(storedForms) : {}
 
@@ -90,7 +85,6 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
 
       setFormName(forms[code].name || "Event Registration Form")
 
-      // Get email statistics
       const statsResult = await getEmailStatistics(code)
       if (statsResult.success) {
         setStatistics(statsResult.statistics)
@@ -143,7 +137,6 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
           description: result.message || `Successfully sent ${result.sent} emails.`,
         })
 
-        // Clear form
         setSubject("")
         setContent("")
       } else {
@@ -166,12 +159,7 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
   }
 
   if (loading) {
-    return (
-      <div className="container flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin mb-4" />
-        <p>Loading email manager...</p>
-      </div>
-    )
+    return <EmailManagerLoading message="Loading email manager..." />
   }
 
   return (
@@ -288,4 +276,3 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
     </div>
   )
 }
-
