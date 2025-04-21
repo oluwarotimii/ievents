@@ -180,9 +180,9 @@ export default function DashboardPage() {
               <Button variant="outline" onClick={loadDashboardData} disabled={refreshing} title="Refresh dashboard">
                 <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
               </Button>
-              <Button asChild>
+              {/* <Button asChild>
                 <Link href="/pricing">Upgrade Plan</Link>
-              </Button>
+              </Button> */}
               <Button variant="outline" onClick={handleLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
                 Logout
