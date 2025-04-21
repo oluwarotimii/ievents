@@ -276,6 +276,9 @@ export async function submitFormResponse(code: string, formData: Record<string, 
 export async function getUserForms() {
   try {
     const user = await requireAuth()
+    if (!user) {
+      throw new Error("Authentication required. Please log in to view your forms.")
+    }
 
     const forms = await prisma.form.findMany({
       where: {
@@ -296,6 +299,9 @@ export async function getUserForms() {
     return forms
   } catch (error) {
     console.error("Error getting user forms:", error)
+    if (error instanceof Error) {
+      throw new Error(error.message)
+    }
     throw new Error("Failed to get user forms")
   }
 }
@@ -422,4 +428,3 @@ export async function checkInAttendee(code: string, responseId: string) {
     throw new Error("Failed to check in attendee")
   }
 }
-

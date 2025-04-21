@@ -457,10 +457,10 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-md">
-      <Card>
+    <div className="container mx-auto py-8 px-4 w-full max-w-md sm:max-w-lg md:max-w-xl">
+      <Card className="w-full">
         <CardHeader>
-          <CardTitle>{formName}</CardTitle>
+          <CardTitle className="text-xl sm:text-2xl">{formName}</CardTitle>
           <CardDescription>Event Code: {code}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -511,4 +511,3 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     </div>
   )
 }
-

@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Check, Loader2, AlertTriangle } from "lucide-react"
 import { getUserSubscriptionDetails, initiatePayment } from "../actions/subscription-actions"
 import type { PlanDetails } from "@/lib/subscription"
+import SubscriptionLoading from "./loading"
 
 export default function SubscriptionPage() {
   const [loading, setLoading] = useState(true)
@@ -67,10 +68,7 @@ export default function SubscriptionPage() {
 
   if (loading) {
     return (
-      <div className="container flex flex-col items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin mb-4" />
-        <p>Loading subscription details...</p>
-      </div>
+      <SubscriptionLoading />
     )
   }
 

@@ -7,18 +7,16 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Loader2 } from 'lucide-react'
 import QRCodeGenerator from "@/components/qr-code-generator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { createEventShareUrls } from "@/app/actions/url-actions"
+import { getFormByCode } from "@/app/actions/form-actions"
 
 export default function QRCodesPage({ params }: { params: { code: string } }) {
-  // Unwrap the params object using React.use()
-  const unwrappedParams = React.use(params)
-  const { code } = unwrappedParams
+  const { code } = params
   const [formName, setFormName] = useState("Event Registration Form")
   const [loading, setLoading] = useState(true)
-  const [isAuthorized, setIsAuthorized] = useState(false)
   const [shareUrls, setShareUrls] = useState({
     viewUrl: "",
     checkInUrl: "",
@@ -37,7 +35,7 @@ export default function QRCodesPage({ params }: { params: { code: string } }) {
             description: "Please log in to access QR codes.",
             variant: "destructive",
           })
-          router.push("/")
+          router.push("/login")
           return
         }
 
@@ -52,26 +50,10 @@ export default function QRCodesPage({ params }: { params: { code: string } }) {
           return
         }
 
-        // Check if this user is the creator of this form
-        const creatorEmails = localStorage.getItem("formCreators")
-          ? JSON.parse(localStorage.getItem("formCreators")!)
-          : {}
-
-        if (creatorEmails[code] !== email) {
-          toast({
-            title: "Access Denied",
-            description: "You don't have permission to access QR codes for this event.",
-            variant: "destructive",
-          })
-          router.push("/dashboard")
-          return
-        }
-
         // Load form data
-        const storedForms = localStorage.getItem("eventForms")
-        const forms = storedForms ? JSON.parse(storedForms) : {}
-
-        if (!forms[code]) {
+        const form = await getFormByCode(code)
+        
+        if (!form) {
           toast({
             title: "Event Not Found",
             description: "No event found with this code. Please check and try again.",
@@ -81,8 +63,7 @@ export default function QRCodesPage({ params }: { params: { code: string } }) {
           return
         }
 
-        setFormName(forms[code].name || "Event Registration Form")
-        setIsAuthorized(true)
+        setFormName(form.name || "Event Registration Form")
 
         // Get shortened URLs
         const result = await createEventShareUrls(code)
@@ -92,6 +73,11 @@ export default function QRCodesPage({ params }: { params: { code: string } }) {
             checkInUrl: result.checkInUrl,
           })
         } else {
+          toast({
+            title: "Error",
+            description: "Failed to create share URLs. Using regular URLs instead.",
+            variant: "destructive",
+          })
           // Fallback to regular URLs
           const baseUrl = window.location.origin
           setShareUrls({
@@ -101,12 +87,12 @@ export default function QRCodesPage({ params }: { params: { code: string } }) {
         }
       } catch (error) {
         console.error("Error loading data:", error)
-        // Fallback to regular URLs
-        const baseUrl = window.location.origin
-        setShareUrls({
-          viewUrl: `${baseUrl}/view/${code}`,
-          checkInUrl: `${baseUrl}/check-in/${code}`,
+        toast({
+          title: "Error",
+          description: "An error occurred while loading QR codes.",
+          variant: "destructive",
         })
+        router.push("/dashboard")
       } finally {
         setLoading(false)
       }
@@ -115,10 +101,10 @@ export default function QRCodesPage({ params }: { params: { code: string } }) {
     loadData()
   }, [code, router, toast])
 
-  if (loading || !isAuthorized) {
+  if (loading) {
     return (
       <div className="container flex items-center justify-center min-h-screen">
-        <p>{loading ? "Loading QR codes..." : "Unauthorized access"}</p>
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     )
   }
@@ -132,11 +118,9 @@ export default function QRCodesPage({ params }: { params: { code: string } }) {
               <CardTitle>{formName} - QR Codes</CardTitle>
               <CardDescription>Event Code: {code}</CardDescription>
             </div>
-            <Button variant="outline" asChild>
-              <Link href="/dashboard">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Dashboard
-              </Link>
+            <Button variant="outline" onClick={() => router.push("/dashboard")}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Dashboard
             </Button>
           </div>
         </CardHeader>
@@ -168,4 +152,3 @@ export default function QRCodesPage({ params }: { params: { code: string } }) {
     </div>
   )
 }
-

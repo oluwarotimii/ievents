@@ -1,6 +1,7 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
@@ -10,10 +11,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { ArrowLeft, Send, Users, Mail, AlertTriangle, Loader2 } from "lucide-react"
 import { sendEventMassEmail, getEmailStatistics } from "@/app/actions/email-actions"
-import EmailManagerLoading from "./loading" // Adjust path if different
+import { prisma } from "@/lib/db"
 
 export default function EmailManagerPage({ params }: { params: { code: string } }) {
-  const { code } = params
+  // Unwrap the params object using React.use()
+  const unwrappedParams = React.use(params)
+  const { code } = unwrappedParams
 
   const [formName, setFormName] = useState("Event Registration Form")
   const [loading, setLoading] = useState(true)
@@ -29,23 +32,12 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
   const { toast } = useToast()
 
   useEffect(() => {
-    const email = typeof window !== "undefined" ? sessionStorage.getItem("loggedInEmail") : null
-
-    if (!email) {
-      toast({
-        title: "Not Logged In",
-        description: "Please log in to access email manager.",
-        variant: "destructive",
-      })
-      router.push("/")
-      return
-    }
-
-    loadData(email)
+    loadData()
   }, [code])
 
-  const loadData = async (email: string) => {
+  const loadData = async () => {
     try {
+      // Validate that code is 4 digits
       if (!/^\d{4}$/.test(code)) {
         toast({
           title: "Invalid Event Code",
@@ -56,24 +48,13 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
         return
       }
 
-      const creatorEmails = localStorage.getItem("formCreators")
-        ? JSON.parse(localStorage.getItem("formCreators")!)
-        : {}
+      // Get form data from database using Prisma
+      const form = await prisma.form.findUnique({
+        where: { code },
+        include: { user: true },
+      })
 
-      if (creatorEmails[code] !== email) {
-        toast({
-          title: "Access Denied",
-          description: "You don't have permission to access email manager for this event.",
-          variant: "destructive",
-        })
-        router.push("/dashboard")
-        return
-      }
-
-      const storedForms = localStorage.getItem("eventForms")
-      const forms = storedForms ? JSON.parse(storedForms) : {}
-
-      if (!forms[code]) {
+      if (!form) {
         toast({
           title: "Event Not Found",
           description: "No event found with this code. Please check and try again.",
@@ -83,8 +64,12 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
         return
       }
 
-      setFormName(forms[code].name || "Event Registration Form")
+      // Check if current user has permission to access this form
+      // This will be handled by the server action that requires authentication
 
+      setFormName(form.name || "Event Registration Form")
+
+      // Get email statistics
       const statsResult = await getEmailStatistics(code)
       if (statsResult.success) {
         setStatistics(statsResult.statistics)
@@ -137,6 +122,7 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
           description: result.message || `Successfully sent ${result.sent} emails.`,
         })
 
+        // Clear form
         setSubject("")
         setContent("")
       } else {
@@ -159,7 +145,12 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
   }
 
   if (loading) {
-    return <EmailManagerLoading message="Loading email manager..." />
+    return (
+      <div className="container flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin mb-4" />
+        <p>Loading email manager...</p>
+      </div>
+    )
   }
 
   return (

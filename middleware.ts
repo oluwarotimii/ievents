@@ -13,7 +13,6 @@ const publicPaths = [
   "/check-in",
   "/pricing",
   "/api", // Allow API routes to be accessed
-  "/s", // Allow short URL redirects
 ]
 
 export async function middleware(request: NextRequest) {
@@ -23,12 +22,13 @@ export async function middleware(request: NextRequest) {
   const isPublicPath = publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 
   // Get the session cookie
-  const sessionCookie = request.cookies.get("session")?.value
+  const sessionCookie = request.cookies.get("session_token")?.value
 
   // If the path is not public and there's no session cookie, redirect to login
   if (!isPublicPath && !sessionCookie) {
     const url = new URL("/login", request.url)
     url.searchParams.set("callbackUrl", encodeURI(request.url))
+    url.searchParams.set("error", encodeURIComponent("You must be logged in to access this page"))
     return NextResponse.redirect(url)
   }
 

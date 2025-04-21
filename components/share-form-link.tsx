@@ -22,18 +22,17 @@ export default function ShareFormLink({ code }: ShareFormLinkProps) {
     async function loadShareUrls() {
       try {
         setLoading(true)
+        // First set a temporary URL while we wait for the shortened one
+        setFormUrl(`${window.location.origin}/view/${code}`)
+
         const result = await createEventShareUrls(code)
 
         if (result.success) {
           setFormUrl(result.viewUrl)
-        } else {
-          // Fallback to regular URL if shortening fails
-          setFormUrl(`${window.location.origin}/view/${code}`)
         }
       } catch (error) {
         console.error("Error loading share URLs:", error)
-        // Fallback to regular URL
-        setFormUrl(`${window.location.origin}/view/${code}`)
+        // Keep the fallback URL that was already set
       } finally {
         setLoading(false)
       }
@@ -62,7 +61,7 @@ export default function ShareFormLink({ code }: ShareFormLinkProps) {
           <p className="text-sm font-medium">Share this form with others using this link or code:</p>
 
           <div className="flex items-center space-x-2">
-            <Input value={loading ? "Generating link..." : formUrl} readOnly className="flex-1" disabled={loading} />
+            <Input value={formUrl} readOnly className={`flex-1 ${loading ? "animate-pulse" : ""}`} />
             <Button variant="outline" size="icon" onClick={handleCopyLink} className="flex-shrink-0" disabled={loading}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </Button>
@@ -82,4 +81,3 @@ export default function ShareFormLink({ code }: ShareFormLinkProps) {
     </Card>
   )
 }
-

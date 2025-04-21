@@ -1,253 +1,338 @@
 import { cookies } from "next/headers"
-import { redirect } from "next/navigation"
-import { jwtVerify, SignJWT } from "jose"
+import { nanoid } from "nanoid"
 import bcrypt from "bcryptjs"
-import crypto from "crypto"
 import prisma from "./prisma"
-import { sendEmail } from "./email"
+import { createShortUrl, getFullShortUrl } from "./url-shortener"
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key"
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-
+// Hash a password
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10)
 }
 
-export async function comparePasswords(password: string, hashedPassword: string): Promise<boolean> {
-  return bcrypt.compare(password, hashedPassword)
+// Compare a password with a hash
+export async function comparePasswords(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash)
 }
 
-export async function createSession(userId: number, rememberMe = false) {
-  // Set expiration to 7 days (default) or 30 days if rememberMe is true
-  const expirationDays = rememberMe ? 30 : 7
-  const expires = new Date(Date.now() + expirationDays * 24 * 60 * 60 * 1000)
+// Create a session for a user
+export async function createSession(userId: number): Promise<void> {
+  // Generate a random token
+  const token = nanoid(32)
 
-  const session = await new SignJWT({ userId })
-    .setProtectedHeader({ alg: "HS256" })
-    .setExpirationTime(expires.getTime() / 1000)
-    .sign(new TextEncoder().encode(JWT_SECRET))
-  ;(await cookies()).set("session", session, {
-    expires,
+  // Set expiration to 30 days from now
+  const expiresAt = new Date()
+  expiresAt.setDate(expiresAt.getDate() + 30)
+
+  // Create session in database
+  await prisma.session.create({
+    data: {
+      userId,
+      token,
+      expiresAt,
+    },
+  })
+
+  // Set session cookie (await cookies() for App Router)
+  const cookieStore = await cookies()
+  cookieStore.set("session_token", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    expires: expiresAt,
     path: "/",
   })
+}
+
+// Get the current session
+export async function getSession() {
+  const cookieStore = await cookies()
+  const sessionToken = cookieStore.get("session_token")?.value
+
+  if (!sessionToken) {
+    return null
+  }
+
+  const session = await prisma.session.findUnique({
+    where: { token: sessionToken },
+    include: { user: true },
+  })
+
+  if (!session || session.expiresAt < new Date()) {
+    return null
+  }
 
   return session
 }
 
-export async function getSession() {
-  const session = (await cookies()).get("session")?.value
-  if (!session) return null
+// Logout a user
+export async function logout(): Promise<void> {
+  const cookieStore = await cookies()
+  const sessionToken = cookieStore.get("session_token")?.value
 
-  try {
-    const { payload } = await jwtVerify(session, new TextEncoder().encode(JWT_SECRET), {
-      algorithms: ["HS256"],
+  if (sessionToken) {
+    // Delete session from database
+    await prisma.session.delete({
+      where: { token: sessionToken },
     })
-    return payload
-  } catch (error) {
-    return null
+
+    // Clear session cookie
+    cookieStore.delete("session_token")
   }
 }
 
+// Get the current user from the session
 export async function getCurrentUser() {
   const session = await getSession()
-  if (!session?.userId) return null
+  return session?.user || null
+}
 
-  const user = await prisma.user.findUnique({
-    where: { id: Number(session.userId) },
-    select: {
-      id: true,
-      username: true,
-      email: true,
-      emailVerified: true,
-    },
-  })
+// Require authentication - throws error if not authenticated
+export async function requireAuth() {
+  const user = await getCurrentUser()
 
-  // Disable email verification for local development
-  if (process.env.NODE_ENV === "development") {
-    return user // Skip email verification for development
+  if (!user) {
+    throw new Error("Authentication required. Please log in to continue.")
   }
 
   return user
 }
 
-export async function requireAuth() {
-  const user = await getCurrentUser()
-  if (!user) redirect("/login")
-  return user
-}
+// Get user from request (for API routes)
+export async function getUserFromRequest(request: Request) {
+  const cookieHeader = request.headers.get("cookie")
+  if (!cookieHeader) return null
 
-// Bypass email verification for now, you can comment/uncomment this based on your needs
-// export async function requireVerifiedEmail() {
-//   const user = await getCurrentUser()
-//   if (!user) redirect("/login")
+  // Parse cookies
+  const cookies = Object.fromEntries(
+    cookieHeader.split("; ").map((cookie) => {
+      const [name, value] = cookie.split("=")
+      return [name, value]
+    }),
+  )
 
-//   // For local development, skip email verification
-//   if (process.env.NODE_ENV === "development") {
-//     return user
-//   }
+  const sessionToken = cookies.session_token
+  if (!sessionToken) return null
 
-//   // if (!user.emailVerified) redirect("/verify-email")
-//   return user
-// }
-
-export async function logout() {
-  ;(await cookies()).delete("session")
-}
-
-// Generate a random token
-export function generateToken(): string {
-  return crypto.randomBytes(32).toString("hex")
-}
-
-// Create a verification token for a user
-export async function createVerificationToken(userId: number): Promise<string> {
-  const token = generateToken()
-  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      verificationToken: token,
-      verificationTokenExpires: expires,
-    },
+  const session = await prisma.session.findUnique({
+    where: { token: sessionToken },
+    include: { user: true },
   })
 
-  return token
-}
+  if (!session || session.expiresAt < new Date()) {
+    return null
+  }
 
-// Create a password reset token for a user
-export async function createPasswordResetToken(email: string): Promise<string | null> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-  })
-
-  if (!user) return null
-
-  const token = generateToken()
-  const expires = new Date(Date.now() + 1 * 60 * 60 * 1000) // 1 hour
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      resetPasswordToken: token,
-      resetPasswordTokenExpires: expires,
-    },
-  })
-
-  return token
-}
-
-// Verify a user's email with a token
-export async function verifyEmail(token: string): Promise<boolean> {
-  const user = await prisma.user.findFirst({
-    where: {
-      verificationToken: token,
-      verificationTokenExpires: {
-        gt: new Date(),
-      },
-    },
-  })
-
-  if (!user) return false
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      emailVerified: true,
-      verificationToken: null,
-      verificationTokenExpires: null,
-    },
-  })
-
-  // Send welcome email
-  await sendEmail({
-    to: user.email,
-    subject: "Welcome to Event Form Builder",
-    template: "welcome",
-    data: {
-      username: user.username,
-      loginUrl: `${BASE_URL}/login`,
-    },
-  })
-
-  return true
-}
-
-// Verify a password reset token
-export async function verifyPasswordResetToken(token: string): Promise<number | null> {
-  const user = await prisma.user.findFirst({
-    where: {
-      resetPasswordToken: token,
-      resetPasswordTokenExpires: {
-        gt: new Date(),
-      },
-    },
-  })
-
-  if (!user) return null
-
-  return user.id
-}
-
-// Reset a user's password
-export async function resetPassword(userId: number, newPassword: string): Promise<boolean> {
-  const passwordHash = await hashPassword(newPassword)
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      passwordHash,
-      resetPasswordToken: null,
-      resetPasswordTokenExpires: null,
-    },
-  })
-
-  return true
+  return session.user
 }
 
 // Send verification email
 export async function sendVerificationEmail(user: { id: number; email: string; username: string }): Promise<boolean> {
-  const token = await createVerificationToken(user.id)
-  const verificationUrl = `${BASE_URL}/verify-email/${token}`
+  try {
+    // Generate a verification token
+    const token = nanoid(32)
 
-  const result = await sendEmail({
-    to: user.email,
-    subject: "Verify Your Email Address",
-    template: "verification",
-    data: {
-      username: user.username,
-      verificationUrl,
-    },
-  })
+    // Store token in database
+    await prisma.verificationToken.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+      },
+    })
 
-  return result.success
+    // Create a short URL for verification
+    const shortCode = await createShortUrl(`/verify-email?token=${token}`)
+    const verificationUrl = getFullShortUrl(shortCode)
+
+    // Get the base URL for the application
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+
+    // Send email
+    const response = await fetch(`${baseUrl}/api/email/send`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to: user.email,
+        subject: "Verify Your Email Address",
+        template: "verification",
+        data: {
+          username: user.username,
+          verificationUrl,
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      console.error("Error sending verification email:", errorData)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error sending email:", error)
+    return false
+  }
+}
+
+// Verify email with token
+export async function verifyEmail(token: string): Promise<boolean> {
+  try {
+    // Find the verification token
+    const verificationToken = await prisma.verificationToken.findFirst({
+      where: {
+        token,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      include: {
+        user: true,
+      },
+    })
+
+    if (!verificationToken) {
+      return false
+    }
+
+    // Mark user as verified
+    await prisma.user.update({
+      where: {
+        id: verificationToken.userId,
+      },
+      data: {
+        emailVerified: true,
+      },
+    })
+
+    // Delete the used token
+    await prisma.verificationToken.delete({
+      where: {
+        id: verificationToken.id,
+      },
+    })
+
+    return true
+  } catch (error) {
+    console.error("Error verifying email:", error)
+    return false
+  }
 }
 
 // Send password reset email
 export async function sendPasswordResetEmail(email: string): Promise<boolean> {
-  const token = await createPasswordResetToken(email)
-  if (!token) return false
+  try {
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email },
+    })
 
-  const user = await prisma.user.findUnique({
-    where: { email },
-  })
+    if (!user) {
+      // Don't reveal that the user doesn't exist
+      return true
+    }
 
-  if (!user) return false
+    // Generate a reset token
+    const token = nanoid(32)
 
-  const resetUrl = `${BASE_URL}/reset-password/${token}`
+    // Store token in database
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt: new Date(Date.now() + 1 * 60 * 60 * 1000), // 1 hour
+      },
+    })
 
-  const result = await sendEmail({
-    to: email,
-    subject: "Reset Your Password",
-    template: "password-reset",
-    data: {
-      username: user.username,
-      resetUrl,
-    },
-  })
+    // Create a short URL for reset
+    const shortCode = await createShortUrl(`/reset-password?token=${token}`)
+    const resetUrl = getFullShortUrl(shortCode)
 
-  return result.success
+    // Get the base URL for the application
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+
+    // Send email
+    const response = await fetch(`${baseUrl}/api/email/send`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to: user.email,
+        subject: "Reset Your Password",
+        template: "password-reset",
+        data: {
+          username: user.username,
+          resetUrl,
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      console.error("Error sending password reset email:", errorData)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error sending password reset email:", error)
+    return false
+  }
 }
 
+// Verify password reset token
+export async function verifyPasswordResetToken(token: string): Promise<number | null> {
+  try {
+    // Find the reset token
+    const resetToken = await prisma.passwordResetToken.findFirst({
+      where: {
+        token,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+    })
+
+    if (!resetToken) {
+      return null
+    }
+
+    return resetToken.userId
+  } catch (error) {
+    console.error("Error verifying reset token:", error)
+    return null
+  }
+}
+
+// Reset password
+export async function resetPassword(userId: number, newPassword: string): Promise<boolean> {
+  try {
+    // Hash the new password
+    const passwordHash = await hashPassword(newPassword)
+
+    // Update user's password
+    await prisma.user.update({
+      where: {
+        id: userId,
+      },
+      data: {
+        passwordHash,
+      },
+    })
+
+    // Delete all reset tokens for this user
+    await prisma.passwordResetToken.deleteMany({
+      where: {
+        userId,
+      },
+    })
+
+    return true
+  } catch (error) {
+    console.error("Error resetting password:", error)
+    return false
+  }
+}

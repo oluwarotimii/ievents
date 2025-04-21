@@ -13,25 +13,14 @@ import {
   verifyEmail,
   verifyPasswordResetToken,
   resetPassword,
-  getSession,
 } from "@/lib/auth"
+import { cookies } from "next/headers"
 
-const registerSchema = z
-  .object({
-    username: z.string().min(3).max(50),
-    email: z.string().email(),
-    password: z.string().min(8),
-  })
-  .refine(
-    (data) => {
-      // This will be checked in the function body since formData doesn't have the schema structure
-      return true
-    },
-    {
-      message: "Passwords don't match",
-      path: ["confirmPassword"],
-    },
-  )
+const registerSchema = z.object({
+  username: z.string().min(3).max(50),
+  email: z.string().email(),
+  password: z.string().min(8),
+})
 
 const loginSchema = z.object({
   username: z.string(),
@@ -52,24 +41,83 @@ const resetPasswordSchema = z
     path: ["confirmPassword"],
   })
 
-export async function registerUser(formData: FormData) {
-  const username = formData.get("username") as string
-  const email = formData.get("email") as string
-  const password = formData.get("password") as string
-  const confirmPassword = formData.get("confirmPassword") as string
+// Get the current session
+export async function getSession() {
+  const cookieStore = await cookies()
+  const sessionToken = cookieStore.get("session_token")?.value
 
-  // Check if passwords match
-  if (password !== confirmPassword) {
+  if (!sessionToken) {
+    return null
+  }
+
+  try {
+    const session = await prisma.session.findUnique({
+      where: { token: sessionToken },
+      include: { user: true },
+    })
+
+    if (!session || session.expiresAt < new Date()) {
+      return null
+    }
+
+    return session
+  } catch (error) {
+    console.error("Error getting session:", error)
+    return null
+  }
+}
+
+// Get the current user
+export async function getCurrentUser() {
+  const session = await getSession()
+  return session?.user || null
+}
+
+// Get subscription info for the current user
+export async function getCurrentUserSubscriptionInfo() {
+  const user = await getCurrentUser()
+
+  if (!user) {
     return {
-      success: false,
-      message: "Passwords don't match.",
+      plan: "FREE",
+      formLimit: 2,
+      formCount: 0,
+      isActive: false,
     }
   }
 
+  // Get subscription info from database
+  const subscription = await prisma.subscription.findUnique({
+    where: { userId: user.id },
+  })
+
+  // Get form count
+  const formCount = await prisma.form.count({
+    where: { userId: user.id },
+  })
+
+  // Default to free plan if no subscription exists
+  const plan = subscription?.planType || "FREE"
+
+  // Set limits based on plan
+  let formLimit = null
+  if (plan === "FREE") {
+    formLimit = 2
+  }
+
+  return {
+    plan,
+    formLimit,
+    formCount,
+    isActive: subscription?.status === "ACTIVE",
+  }
+}
+
+export async function registerUser(formData: FormData) {
   const validatedFields = registerSchema.safeParse({
-    username,
-    email,
-    password,
+    username: formData.get("username"),
+    email: formData.get("email"),
+    password: formData.get("password"),
   })
 
   if (!validatedFields.success) {
@@ -78,6 +126,8 @@ export async function registerUser(formData: FormData) {
       message: "Invalid input. Please check your information.",
     }
   }
+
+  const { username, email, password } = validatedFields.data
 
   try {
     // Check if user already exists
@@ -101,12 +151,12 @@ export async function registerUser(formData: FormData) {
         username,
         email,
         passwordHash,
-        emailVerified: true, // Set to true to bypass verification
+        emailVerified: false, // Set to false to require verification
       },
     })
 
-    // Comment out the email verification sending
-    // await sendVerificationEmail(user)
+    // Send verification email
+    await sendVerificationEmail(user)
 
     // Create session
     await createSession(user.id)
@@ -135,7 +185,6 @@ export async function loginUser(formData: FormData) {
   }
 
   const { username, password } = validatedFields.data
-  const rememberMe = formData.get("rememberMe") === "on"
 
   try {
     // Find user by username or email
@@ -164,8 +213,11 @@ export async function loginUser(formData: FormData) {
       }
     }
 
-    // Create session with rememberMe option
-    await createSession(user.id, rememberMe)
+    // Create session
+    await createSession(user.id)
+
+    // Log successful login
+    console.log(`User ${user.username} logged in successfully`)
 
     return {
       success: true,
@@ -312,4 +364,3 @@ export async function resetUserPassword(token: string, formData: FormData) {
     }
   }
 }
-

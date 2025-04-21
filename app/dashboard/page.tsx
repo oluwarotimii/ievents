@@ -25,8 +25,8 @@ import {
 import { format } from "date-fns"
 import { Badge } from "@/components/ui/badge"
 import { getUserForms, deleteForm } from "../actions/form-actions"
-import { logoutUser } from "../actions/auth-actions"
-import { getSubscriptionLimits } from "@/lib/subscription"
+import { logoutUser, getCurrentUserSubscriptionInfo } from "../actions/auth-actions"
+import { useRouter } from "next/navigation"
 
 interface FormData {
   id: number
@@ -44,6 +44,8 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [deletingForm, setDeletingForm] = useState<string | null>(null)
+  const [username, setUsername] = useState<string>("")
+  const [greeting, setGreeting] = useState<string>("Welcome")
   const { toast } = useToast()
   const [subscriptionInfo, setSubscriptionInfo] = useState<{
     plan: string
@@ -51,29 +53,58 @@ export default function DashboardPage() {
     formCount: number
     isActive: boolean
   } | null>(null)
+  const router = useRouter()
 
   useEffect(() => {
     loadDashboardData()
+    setTimeBasedGreeting()
   }, [])
+
+  const setTimeBasedGreeting = () => {
+    const hour = new Date().getHours()
+    let greetingText = "Welcome"
+
+    if (hour >= 5 && hour < 12) {
+      greetingText = "Good morning"
+    } else if (hour >= 12 && hour < 18) {
+      greetingText = "Good afternoon"
+    } else {
+      greetingText = "Good evening"
+    }
+
+    setGreeting(greetingText)
+  }
 
   const loadDashboardData = async () => {
     setRefreshing(true)
     try {
+      // Get forms from database using Prisma via server action
       const userForms = await getUserForms()
       setForms(userForms)
 
-      // Load subscription info
-      // Assuming user object is available globally or can be fetched here
-      const user = { id: "user-id-placeholder" } // Replace with actual user object/id
-      const limits = await getSubscriptionLimits(user.id)
-      setSubscriptionInfo(limits)
+      // Get subscription info using server action
+      const subInfo = await getCurrentUserSubscriptionInfo()
+      setSubscriptionInfo(subInfo)
+
+      // Get username
+      const user = await fetch("/api/user").then((res) => res.json())
+      if (user && user.username) {
+        setUsername(user.username)
+      }
+
+      console.log("Dashboard data loaded successfully")
     } catch (error) {
       console.error("Error loading forms:", error)
       toast({
         title: "Error",
-        description: "Failed to load your forms. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to load your forms. Please try again.",
         variant: "destructive",
       })
+
+      // If authentication error, redirect to login
+      if (error instanceof Error && error.message.includes("Authentication required")) {
+        router.push("/login")
+      }
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -130,13 +161,19 @@ export default function DashboardPage() {
     )
   }
 
+  // Check if user has reached form limit
+  const hasReachedLimit =
+    subscriptionInfo?.formLimit !== null && subscriptionInfo?.formCount >= subscriptionInfo?.formLimit
+
   return (
     <div className="container mx-auto py-8">
       <Card className="mb-6">
         <CardHeader>
           <div className="flex justify-between items-center">
             <div>
-              <CardTitle>Your Forms Dashboard</CardTitle>
+              <CardTitle>
+                {greeting}, {username || "User"}!
+              </CardTitle>
               <CardDescription>Total Forms: {forms.length}</CardDescription>
             </div>
             <div className="flex space-x-2">
@@ -162,9 +199,9 @@ export default function DashboardPage() {
                   <span className="font-bold">
                     {subscriptionInfo.plan === "FREE"
                       ? "Free"
-                      : subscriptionInfo.plan === "MONTHLY"
-                        ? "Monthly"
-                        : "Lifetime"}
+                      : subscriptionInfo.plan === "BASIC"
+                        ? "Basic"
+                        : "Premium"}
                   </span>
                 </p>
                 {subscriptionInfo.formLimit && (
@@ -188,20 +225,18 @@ export default function DashboardPage() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
             />
-            <Button
-              asChild
-              disabled={
-                subscriptionInfo?.formLimit !== null && subscriptionInfo?.formCount >= subscriptionInfo?.formLimit
-              }
-            >
-              <Link href="/create">
-                <Plus className="h-4 w-4 mr-2" />
-                Create New Form
-              </Link>
-            </Button>
+            {/* Only show the Create Form button if user hasn't reached the limit */}
+            {!hasReachedLimit && (
+              <Button asChild>
+                <Link href="/create">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create New Form
+                </Link>
+              </Button>
+            )}
           </div>
 
-          {subscriptionInfo?.formLimit !== null && subscriptionInfo?.formCount >= subscriptionInfo?.formLimit && (
+          {hasReachedLimit && (
             <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start">
               <AlertTriangle className="h-5 w-5 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
               <div>
@@ -219,9 +254,11 @@ export default function DashboardPage() {
           {forms.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground">You haven't created any forms yet.</p>
-              <Button asChild className="mt-4">
-                <Link href="/create">Create Your First Form</Link>
-              </Button>
+              {!hasReachedLimit && (
+                <Button asChild className="mt-4">
+                  <Link href="/create">Create Your First Form</Link>
+                </Button>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -316,4 +353,3 @@ export default function DashboardPage() {
     </div>
   )
 }
-

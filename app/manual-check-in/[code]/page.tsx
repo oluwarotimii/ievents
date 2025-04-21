@@ -13,6 +13,7 @@ import { ArrowLeft, CheckCircle2, Search, UserCheck, Loader2, RefreshCw } from "
 import { format } from "date-fns"
 import QuickCheckInCard from "@/components/quick-check-in-card"
 import { getFormByCode, getFormResponses, checkInAttendee } from "@/app/actions/form-actions"
+import ManualCheckInLoading from "./loading"
 
 interface FormResponse {
   id: string
@@ -156,16 +157,15 @@ export default function ManualCheckInPage({ params }: { params: { code: string }
 
   if (loading) {
     return (
-      <div className="container flex flex-col items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin mb-4" />
-        <p>Loading check-in page...</p>
+      <><ManualCheckInLoading /><div className="container flex flex-col items-center justify-center min-h-screen">
+
         <Button variant="outline" className="mt-4" asChild>
           <Link href="/dashboard">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Dashboard
           </Link>
         </Button>
-      </div>
+      </div></>
     )
   }
 

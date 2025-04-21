@@ -239,4 +239,3 @@ export async function getSubscriptionLimits(userId: number) {
     isActive: subscription.status === "ACTIVE",
   }
 }
-

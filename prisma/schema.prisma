@@ -26,9 +26,45 @@ model User {
   subscription              Subscription?
   paymentSettings           PaymentSettings?
   transactions              Transaction[]
-  ShortUrl                  ShortUrl[]
+  shortUrls                 ShortUrl[]
+  sessions                  Session[]
+  verificationTokens        VerificationToken[]
+  passwordResetTokens       PasswordResetToken[]
 
   @@map("users")
+}
+
+model Session {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Form {
@@ -47,6 +83,7 @@ model Form {
   paymentCurrency   String?     @default("NGN") @map("payment_currency")
   paymentTitle      String?     @map("payment_title")
   paymentDescription String?    @map("payment_description")
+  shortUrls         ShortUrl[]
 
   @@map("forms")
 }
@@ -77,6 +114,8 @@ model Response {
   submittedAt DateTime       @default(now()) @map("submitted_at") @db.Timestamptz
   data        ResponseData[]
   transaction Transaction?
+  paymentStatus String?
+  paymentReference String?
 
   @@map("responses")
 }
@@ -172,52 +211,50 @@ model Transaction {
   paymentMethod   String    @map("payment_method")
   paymentGateway  String    @default("paystack") @map("payment_gateway")
   customerName    String?   @map("customer_name")
-  customerEmail   String    @map("customer_email")
-  formCode        String    @map("form_code")
-  formName        String    @map("form_name")
-  paymentDate     DateTime? @map("payment_date") @db.Timestamptz
+  customerEmail   String?   @map("customer_email")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz
 
   @@map("transactions")
 }
 
+// Updated ShortUrl model with shortCode field
 model ShortUrl {
-  id          String   @id @default(cuid())
-  originalUrl String   @map("original_url")
-  shortCode   String   @unique @map("short_code")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  expiresAt   DateTime? @map("expires_at") @db.Timestamptz
-  clicks      Int      @default(0)
-  userId      Int?     @map("user_id")
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id        Int      @id @default(autoincrement())
+  url       String   @map("url")
+  shortCode String   @unique @map("short_code")
+  clicks    Int      @default(0)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz
+  formId    Int?     @map("form_id")
+  form      Form?    @relation(fields: [formId], references: [id], onDelete: SetNull)
+  userId    Int?     @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
   @@map("short_urls")
 }
 
 enum PlanType {
   FREE
-  MONTHLY
-  LIFETIME
+  BASIC
+  PREMIUM
 }
 
 enum SubscriptionStatus {
   ACTIVE
-  PAST_DUE
-  CANCELED
-  EXPIRED
+  INACTIVE
+  CANCELLED
 }
 
 enum PaymentStatus {
   PENDING
   COMPLETED
   FAILED
-  REFUNDED
 }
 
 enum TransactionStatus {
   PENDING
   COMPLETED
   FAILED
-  REFUNDED
 }
