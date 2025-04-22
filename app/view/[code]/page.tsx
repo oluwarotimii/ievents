@@ -93,6 +93,19 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Validate required fields
+    const missingRequiredFields = formFields.filter((field) => field.required).filter((field) => !formValues[field.id])
+
+    if (missingRequiredFields.length > 0) {
+      toast({
+        title: "Missing Required Fields",
+        description: "Please fill in all required fields before submitting.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setSubmitting(true)
 
     try {
@@ -100,7 +113,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       const result = await submitFormResponse(code, formValues)
 
       if (!result.success) {
-        throw new Error("Failed to submit form")
+        throw new Error(result.message || "Failed to submit form")
       }
 
       // Store the submitted data for the success screen
@@ -473,15 +486,15 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
 
             {collectsPayments && paymentAmount && (
               <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-md">
-                <h3 className="font-medium text-blue-800 mb-2">{paymentTitle || "Payment Required"}</h3>
+                <h3 className="font-medium text-blue-800 mb-2">{paymentTitle || "Registration Fee"}</h3>
                 <p className="text-sm text-blue-700 mb-3">
-                  {paymentDescription || "Payment is required for this event."}
+                  {paymentDescription || "A payment is required to complete your registration for this event."}
                 </p>
 
                 <div className="bg-white p-3 rounded-md">
                   <div className="flex justify-between mb-1">
-                    <span className="text-sm">Base Amount:</span>
-                    <span>₦{paymentAmount.toLocaleString()}</span>
+                    <span className="text-sm">Registration Fee:</span>
+                    <span className="font-medium">₦{paymentAmount.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between mb-1">
                     <span className="text-sm">Platform Fee (2%):</span>

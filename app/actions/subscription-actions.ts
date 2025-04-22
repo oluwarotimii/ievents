@@ -49,6 +49,15 @@ export async function getUserSubscriptionDetails() {
 export async function initiatePayment(planId: string) {
   try {
     const user = await requireAuth()
+
+    // Validate that planId is a valid PlanType
+    if (!["FREE", "BASIC", "PREMIUM"].includes(planId)) {
+      return {
+        success: false,
+        message: `Invalid plan selected: ${planId}. Valid plans are FREE, BASIC, and PREMIUM.`,
+      }
+    }
+
     const plan = PLANS[planId as PlanType]
 
     if (!plan) {
@@ -121,8 +130,8 @@ export async function cancelSubscription() {
     // Get user's subscription
     const subscription = await getUserSubscription(user.id)
 
-    // Only monthly subscriptions can be canceled
-    if (subscription.planType !== "MONTHLY") {
+    // Only BASIC subscriptions can be canceled
+    if (subscription.planType !== "BASIC") {
       return {
         success: false,
         message: "Only monthly subscriptions can be canceled",
@@ -222,4 +231,3 @@ export async function verifyPayment(reference: string) {
     }
   }
 }
-

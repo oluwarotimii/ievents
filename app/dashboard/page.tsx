@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge"
 import { getUserForms, deleteForm } from "../actions/form-actions"
 import { logoutUser, getCurrentUserSubscriptionInfo } from "../actions/auth-actions"
 import { useRouter } from "next/navigation"
+import DashboardLoading from "./loading"
 
 interface FormData {
   id: number
@@ -154,10 +155,11 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="container flex flex-col items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin mb-4" />
-        <p>Loading dashboard...</p>
-      </div>
+      // <div className="container flex flex-col items-center justify-center min-h-screen">
+      //   <Loader2 className="h-8 w-8 animate-spin mb-4" />
+      //   <p>Loading dashboard...</p>
+      // </div>
+      <DashboardLoading />
     )
   }
 

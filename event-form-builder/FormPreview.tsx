@@ -6,6 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Card, CardContent } from "@/components/ui/card"
 
 interface FormPreviewProps {
   formName: string
@@ -14,6 +16,26 @@ interface FormPreviewProps {
 }
 
 export default function FormPreview({ formName, fields, onClose }: FormPreviewProps) {
+  // Calculate total of all required payment fields
+  const calculateTotalPayment = () => {
+    return fields
+      .filter((field) => field.type === "payment" && !(field as PaymentField).isOptional)
+      .reduce((total, field) => {
+        const amount = (field as PaymentField).amount || 0
+        return total + amount
+      }, 0)
+  }
+
+  // Calculate platform fee (2% capped at ₦200)
+  const calculatePlatformFee = (amount: number): number => {
+    const fee = amount * 0.02
+    return Math.min(fee, 200) // Cap at ₦200
+  }
+
+  const totalRequiredPayment = calculateTotalPayment()
+  const platformFee = calculatePlatformFee(totalRequiredPayment)
+  const grandTotal = totalRequiredPayment + platformFee
+
   const renderField = (field: FormField) => {
     switch (field.type) {
       case "text":
@@ -99,25 +121,35 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
         )
       case "payment":
         const paymentField = field as PaymentField
+        const isOptional = paymentField.isOptional || false
+        const amount = paymentField.amount || 0
+
         return (
           <div className="mb-4">
-            <Label htmlFor={field.id}>
-              {field.label}
-              {field.required && "*"}
-            </Label>
-            <div className="flex space-x-2">
-              <Input id={field.id} type="number" placeholder="Enter amount" required={field.required} />
-              <Select defaultValue={paymentField.currency}>
-                <SelectTrigger id={`${field.id}-currency`}>
-                  <SelectValue placeholder="Currency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="USD">USD</SelectItem>
-                  <SelectItem value="EUR">EUR</SelectItem>
-                  <SelectItem value="GBP">GBP</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex items-center justify-between mb-2">
+              <Label htmlFor={field.id}>
+                {field.label}
+                {!isOptional && "*"}
+              </Label>
+              <div className="text-right">
+                <span className="font-medium">
+                  {paymentField.currency} {amount.toLocaleString()}
+                </span>
+              </div>
             </div>
+
+            {paymentField.description && (
+              <p className="text-sm text-muted-foreground mb-2">{paymentField.description}</p>
+            )}
+
+            {isOptional && (
+              <div className="flex items-center space-x-2 mt-2">
+                <Checkbox id={`${field.id}-checkbox`} />
+                <Label htmlFor={`${field.id}-checkbox`}>
+                  Add this item ({paymentField.currency} {amount.toLocaleString()})
+                </Label>
+              </div>
+            )}
           </div>
         )
       default:
@@ -125,14 +157,55 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
     }
   }
 
+  // Check if there are any payment fields
+  const hasPaymentFields = fields.some((field) => field.type === "payment")
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-auto">
       <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <h2 className="text-2xl font-bold mb-4">{formName}</h2>
         <form className="space-y-4">
           {fields.map((field) => (
             <div key={field.id}>{renderField(field)}</div>
           ))}
+
+          {hasPaymentFields && (
+            <Card className="mt-4">
+              <CardContent className="pt-6">
+                <h3 className="font-medium mb-2">Payment Summary</h3>
+                <div className="space-y-2">
+                  {fields
+                    .filter((field) => field.type === "payment")
+                    .map((field, index) => {
+                      const paymentField = field as PaymentField
+                      const amount = paymentField.amount || 0
+                      return (
+                        <div key={index} className="flex justify-between text-sm">
+                          <span>
+                            {field.label}
+                            {paymentField.isOptional ? " (Optional)" : ""}
+                          </span>
+                          <span>
+                            {paymentField.currency} {amount.toLocaleString()}
+                          </span>
+                        </div>
+                      )
+                    })}
+
+                  <div className="flex justify-between text-sm pt-2 border-t">
+                    <span>Platform Fee (2%)</span>
+                    <span>NGN {platformFee.toLocaleString()}</span>
+                  </div>
+
+                  <div className="flex justify-between font-medium pt-2 border-t">
+                    <span>Total</span>
+                    <span>NGN {grandTotal.toLocaleString()}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Button type="submit" className="w-full">
             Submit
           </Button>
@@ -144,4 +217,3 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
     </div>
   )
 }
-

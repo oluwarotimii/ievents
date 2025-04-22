@@ -31,11 +31,12 @@ export const PLANS: Record<PlanType, PlanDetails> = {
     responseLimit: 20,
     isRecurring: false,
   },
-  MONTHLY: {
-    id: "MONTHLY",
-    name: "Monthly Subscription",
+  BASIC: {
+    // Changed from MONTHLY to BASIC
+    id: "BASIC",
+    name: "Basic Subscription", // Updated name
     description: "For professionals managing multiple events",
-    price: 5000,
+    price: 5000, // You can adjust this price as needed
     currency: "NGN",
     features: [
       "Unlimited event forms",
@@ -50,11 +51,12 @@ export const PLANS: Record<PlanType, PlanDetails> = {
     responseLimit: null,
     isRecurring: true,
   },
-  LIFETIME: {
-    id: "LIFETIME",
-    name: "Lifetime Access",
+  PREMIUM: {
+    // Changed from LIFETIME to PREMIUM
+    id: "PREMIUM",
+    name: "Premium Access", // Updated name
     description: "One-time payment for unlimited access",
-    price: 6000,
+    price: 6000, // You can adjust this price as needed
     currency: "NGN",
     features: [
       "Unlimited event forms",
@@ -171,8 +173,8 @@ export async function upgradeSubscription(
   const startDate = new Date()
   let endDate: Date | null = null
 
-  // Set end date for monthly subscription
-  if (planType === "MONTHLY") {
+  // Set end date for BASIC subscription (monthly)
+  if (planType === "BASIC") {
     endDate = new Date()
     endDate.setMonth(endDate.getMonth() + 1)
   }

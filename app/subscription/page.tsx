@@ -10,7 +10,6 @@ import { useToast } from "@/hooks/use-toast"
 import { Check, Loader2, AlertTriangle } from "lucide-react"
 import { getUserSubscriptionDetails, initiatePayment } from "../actions/subscription-actions"
 import type { PlanDetails } from "@/lib/subscription"
-import SubscriptionLoading from "./loading"
 
 export default function SubscriptionPage() {
   const [loading, setLoading] = useState(true)
@@ -68,7 +67,10 @@ export default function SubscriptionPage() {
 
   if (loading) {
     return (
-      <SubscriptionLoading />
+      <div className="container flex flex-col items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin mb-4" />
+        <p>Loading subscription details...</p>
+      </div>
     )
   }
 
@@ -152,53 +154,60 @@ export default function SubscriptionPage() {
         )}
 
         <div className="grid md:grid-cols-3 gap-6">
-          {plans.map((plan) => (
-            <Card key={plan.id} className={`flex flex-col ${currentPlan === plan.id ? "border-primary" : ""}`}>
-              <CardHeader>
-                <CardTitle>{plan.name}</CardTitle>
-                <CardDescription>{plan.description}</CardDescription>
-                <div className="mt-4">
-                  <span className="text-3xl font-bold">
-                    {plan.price === 0 ? "Free" : `₦${plan.price.toLocaleString()}`}
-                  </span>
-                  {plan.isRecurring && <span className="text-sm text-muted-foreground ml-1">/month</span>}
-                </div>
-              </CardHeader>
-              <CardContent className="flex-grow">
-                <ul className="space-y-2">
-                  {plan.features.map((feature, index) => (
-                    <li key={index} className="flex items-start">
-                      <Check className="h-5 w-5 text-green-500 mr-2 flex-shrink-0" />
-                      <span className="text-sm">{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-              <CardFooter>
-                {currentPlan === plan.id ? (
-                  <Button className="w-full" disabled>
-                    Current Plan
-                  </Button>
-                ) : (
-                  <Button className="w-full" onClick={() => handleUpgrade(plan.id)} disabled={processingPayment}>
-                    {processingPayment ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Processing...
-                      </>
-                    ) : plan.price === 0 ? (
-                      "Downgrade to Free"
-                    ) : (
-                      "Upgrade"
-                    )}
-                  </Button>
-                )}
-              </CardFooter>
-            </Card>
-          ))}
+          {plans
+            .filter((plan) => {
+              // If user is on a paid plan (not FREE), hide the FREE plan option
+              if (currentPlan !== "FREE" && plan.id === "FREE") {
+                return false
+              }
+              return true
+            })
+            .map((plan) => (
+              <Card key={plan.id} className={`flex flex-col ${currentPlan === plan.id ? "border-primary" : ""}`}>
+                <CardHeader>
+                  <CardTitle>{plan.name}</CardTitle>
+                  <CardDescription>{plan.description}</CardDescription>
+                  <div className="mt-4">
+                    <span className="text-3xl font-bold">
+                      {plan.price === 0 ? "Free" : `₦${plan.price.toLocaleString()}`}
+                    </span>
+                    {plan.isRecurring && <span className="text-sm text-muted-foreground ml-1">/month</span>}
+                  </div>
+                </CardHeader>
+                <CardContent className="flex-grow">
+                  <ul className="space-y-2">
+                    {plan.features.map((feature, index) => (
+                      <li key={index} className="flex items-start">
+                        <Check className="h-5 w-5 text-green-500 mr-2 flex-shrink-0" />
+                        <span className="text-sm">{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+                <CardFooter>
+                  {currentPlan === plan.id ? (
+                    <Button className="w-full" disabled>
+                      Current Plan
+                    </Button>
+                  ) : (
+                    <Button className="w-full" onClick={() => handleUpgrade(plan.id)} disabled={processingPayment}>
+                      {processingPayment ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Processing...
+                        </>
+                      ) : plan.price === 0 ? (
+                        "Downgrade to Free"
+                      ) : (
+                        "Upgrade"
+                      )}
+                    </Button>
+                  )}
+                </CardFooter>
+              </Card>
+            ))}
         </div>
       </div>
     </div>
   )
 }
-
