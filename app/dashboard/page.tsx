@@ -27,7 +27,7 @@ import { Badge } from "@/components/ui/badge"
 import { getUserForms, deleteForm } from "../actions/form-actions"
 import { logoutUser, getCurrentUserSubscriptionInfo } from "../actions/auth-actions"
 import { useRouter } from "next/navigation"
-import { useLoading } from "@/contexts/loading-context"
+import { useLoading } from "@/components/loading-context"
 
 interface FormData {
   id: number

@@ -12,7 +12,7 @@ import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
 import { CheckCircle2, Loader2, CreditCard } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useLoading } from "@/contexts/loading-context"
+import { useLoading } from "@/components/loading-context"
 
 export default function ViewFormPage({ params }: { params: { code: string } }) {
   // Unwrap the params object using React.use()
