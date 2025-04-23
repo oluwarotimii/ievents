@@ -3,7 +3,7 @@
 import { Textarea } from "@/components/ui/textarea"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
@@ -15,6 +15,7 @@ import { eventCategories, type EventCategory } from "./eventCategories"
 import type { FormField, PaymentField, FieldType } from "./types"
 import FormPreview from "./FormPreview"
 import { useToast } from "@/hooks/use-toast"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
 interface EventFormBuilderProps {
   eventId?: string
@@ -22,6 +23,8 @@ interface EventFormBuilderProps {
   onChange: (fields: FormField[]) => void
   onNameChange?: (name: string) => void
   onCategoryChange?: (category: string | null) => void
+  initialFormName?: string
+  initialCategory?: string | null
 }
 
 export default function EventFormBuilder({
@@ -30,11 +33,30 @@ export default function EventFormBuilder({
   onChange,
   onNameChange,
   onCategoryChange,
+  initialFormName,
+  initialCategory,
 }: EventFormBuilderProps) {
-  const [formName, setFormName] = useState<string>("Untitled Event Registration Form")
+  const [formName, setFormName] = useState<string>(initialFormName || "Untitled Event Registration Form")
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | null>(null)
   const [showPreview, setShowPreview] = useState(false)
   const { toast } = useToast()
+
+  // Set initial category if provided
+  useEffect(() => {
+    if (initialCategory) {
+      const category = eventCategories.find((c) => c.name === initialCategory)
+      if (category) {
+        setSelectedCategory(category)
+      }
+    }
+  }, [initialCategory])
+
+  // Update form name when initialFormName changes
+  useEffect(() => {
+    if (initialFormName) {
+      setFormName(initialFormName)
+    }
+  }, [initialFormName])
 
   const handleFormNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value
@@ -60,9 +82,15 @@ export default function EventFormBuilder({
       required: false,
       options: type === "select" || type === "radio" ? ["Option 1"] : undefined,
     }
+
     if (type === "payment") {
-      ;(newField as PaymentField).currency = "USD"
+      ;(newField as PaymentField).currency = "NGN"
+      ;(newField as PaymentField).amount = 0
+      ;(newField as PaymentField).isOptional = false
+      ;(newField as PaymentField).itemType = "registration"
+      ;(newField as PaymentField).description = "Registration fee for the event"
     }
+
     onChange([...fields, newField])
   }
 
@@ -144,19 +172,86 @@ export default function EventFormBuilder({
       case "number":
         return <Input type="number" placeholder={`Enter ${field.label}`} disabled />
       case "payment":
+        const paymentField = field as PaymentField
         return (
-          <div className="space-y-2">
-            <Input type="number" placeholder="Enter amount" disabled />
-            <Select disabled>
-              <SelectTrigger>
-                <SelectValue placeholder="Select currency" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="USD">USD</SelectItem>
-                <SelectItem value="EUR">EUR</SelectItem>
-                <SelectItem value="GBP">GBP</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor={`amount-${field.id}`}>Amount</Label>
+                <Input
+                  id={`amount-${field.id}`}
+                  type="number"
+                  placeholder="Enter amount"
+                  value={paymentField.amount || ""}
+                  onChange={(e) => updateField(field.id, { amount: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label htmlFor={`currency-${field.id}`}>Currency</Label>
+                <Select
+                  value={paymentField.currency || "NGN"}
+                  onValueChange={(value) => updateField(field.id, { currency: value })}
+                >
+                  <SelectTrigger id={`currency-${field.id}`}>
+                    <SelectValue placeholder="Select currency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NGN">NGN</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="GBP">GBP</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor={`description-${field.id}`}>Description</Label>
+              <Textarea
+                id={`description-${field.id}`}
+                placeholder="Describe what this payment is for"
+                value={paymentField.description || ""}
+                onChange={(e) => updateField(field.id, { description: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <Label>Payment Type</Label>
+              <RadioGroup
+                value={paymentField.itemType || "registration"}
+                onValueChange={(value) =>
+                  updateField(field.id, {
+                    itemType: value as "registration" | "merchandise" | "donation" | "other",
+                  })
+                }
+              >
+                <div className="flex items-center space-x-2 mt-2">
+                  <RadioGroupItem value="registration" id={`type-registration-${field.id}`} />
+                  <Label htmlFor={`type-registration-${field.id}`}>Registration Fee</Label>
+                </div>
+                <div className="flex items-center space-x-2 mt-2">
+                  <RadioGroupItem value="merchandise" id={`type-merchandise-${field.id}`} />
+                  <Label htmlFor={`type-merchandise-${field.id}`}>Merchandise</Label>
+                </div>
+                <div className="flex items-center space-x-2 mt-2">
+                  <RadioGroupItem value="donation" id={`type-donation-${field.id}`} />
+                  <Label htmlFor={`type-donation-${field.id}`}>Donation</Label>
+                </div>
+                <div className="flex items-center space-x-2 mt-2">
+                  <RadioGroupItem value="other" id={`type-other-${field.id}`} />
+                  <Label htmlFor={`type-other-${field.id}`}>Other</Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            <div className="flex items-center space-x-2 mt-2">
+              <Switch
+                id={`optional-${field.id}`}
+                checked={paymentField.isOptional || false}
+                onCheckedChange={(checked) => updateField(field.id, { isOptional: checked })}
+              />
+              <Label htmlFor={`optional-${field.id}`}>Optional Payment (attendees can choose whether to pay)</Label>
+            </div>
           </div>
         )
       default:
@@ -179,6 +274,7 @@ export default function EventFormBuilder({
         </CardHeader>
         <CardContent>
           <Select
+            value={selectedCategory?.name}
             onValueChange={(value) =>
               handleCategoryChange(eventCategories.find((c) => c.name === value) as EventCategory)
             }
@@ -214,14 +310,16 @@ export default function EventFormBuilder({
                   </Button>
                 </div>
                 {renderFieldInput(field)}
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id={`required-${field.id}`}
-                    checked={field.required}
-                    onCheckedChange={(checked) => updateField(field.id, { required: checked })}
-                  />
-                  <Label htmlFor={`required-${field.id}`}>Required</Label>
-                </div>
+                {field.type !== "payment" && (
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id={`required-${field.id}`}
+                      checked={field.required}
+                      onCheckedChange={(checked) => updateField(field.id, { required: checked })}
+                    />
+                    <Label htmlFor={`required-${field.id}`}>Required</Label>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -242,7 +340,9 @@ export default function EventFormBuilder({
             <Button onClick={() => addField("phone")}>Phone</Button>
             <Button onClick={() => addField("date")}>Date</Button>
             <Button onClick={() => addField("number")}>Number</Button>
-            <Button onClick={() => addField("payment")}>Payment</Button>
+            <Button onClick={() => addField("payment")} className="col-span-2">
+              Payment Item
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -257,4 +357,3 @@ export default function EventFormBuilder({
     </div>
   )
 }
-

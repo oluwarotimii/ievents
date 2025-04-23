@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import prisma from "@/lib/prisma"
 import { requireAuth } from "@/lib/auth"
 import type { FormField } from "@/event-form-builder/types"
+import { canCreateForm } from "@/lib/subscription"
 
 // Generate a random 4-digit code
 function generateEventCode(): string {
@@ -28,9 +29,25 @@ async function generateUniqueCode(): Promise<string> {
 }
 
 // Create a new form
-export async function createForm(formName: string, category: string | null, fields: FormField[]) {
+export async function createForm(
+  formName: string,
+  category: string | null,
+  fields: FormField[],
+  collectsPayments = false,
+  paymentAmount: number | null = null,
+  paymentTitle: string | null = null,
+  paymentDescription: string | null = null,
+) {
   try {
     const user = await requireAuth()
+
+    // Check if user can create more forms based on subscription
+    const canCreate = await canCreateForm(user.id)
+    if (!canCreate) {
+      throw new Error(
+        "You have reached the maximum number of forms allowed on your current plan. Please upgrade to create more forms.",
+      )
+    }
 
     const code = await generateUniqueCode()
 
@@ -40,6 +57,10 @@ export async function createForm(formName: string, category: string | null, fiel
         name: formName,
         category,
         userId: user.id,
+        collectsPayments,
+        paymentAmount,
+        paymentTitle,
+        paymentDescription,
         fields: {
           create: fields.map((field, index) => ({
             fieldId: field.id,
@@ -60,7 +81,7 @@ export async function createForm(formName: string, category: string | null, fiel
     return form
   } catch (error) {
     console.error("Error creating form:", error)
-    throw new Error("Failed to create form")
+    throw new Error(error instanceof Error ? error.message : "Failed to create form")
   }
 }
 
@@ -157,15 +178,86 @@ export async function getFormByCode(code: string) {
   }
 }
 
+/**
+ * Check if an email has already been used for registration
+ */
+export async function checkDuplicateRegistration(code: string, email: string): Promise<boolean> {
+  try {
+    // Find the form
+    const form = await prisma.form.findUnique({
+      where: { code },
+      include: {
+        fields: {
+          where: {
+            type: "email",
+          },
+        },
+      },
+    })
+
+    if (!form) {
+      throw new Error("Form not found")
+    }
+
+    // Get email field IDs
+    const emailFieldIds = form.fields.map((field) => field.fieldId)
+
+    if (emailFieldIds.length === 0) {
+      // No email fields in the form, can't check for duplicates
+      return false
+    }
+
+    // Check for existing responses with this email
+    const existingResponses = await prisma.response.findMany({
+      where: {
+        formId: form.id,
+        data: {
+          some: {
+            fieldId: {
+              in: emailFieldIds,
+            },
+            value: email,
+          },
+        },
+      },
+    })
+
+    return existingResponses.length > 0
+  } catch (error) {
+    console.error("Error checking duplicate registration:", error)
+    throw new Error("Failed to check duplicate registration")
+  }
+}
+
 // Submit form response
 export async function submitFormResponse(code: string, formData: Record<string, any>) {
   try {
     const form = await prisma.form.findUnique({
       where: { code },
+      include: {
+        fields: true,
+      },
     })
 
     if (!form) {
       throw new Error("Form not found")
+    }
+
+    // Check for email fields in the form data
+    const emailFields = form.fields.filter((field) => field.type === "email")
+
+    for (const emailField of emailFields) {
+      const email = formData[emailField.fieldId]
+      if (email) {
+        // Check if this email has already been used
+        const isDuplicate = await checkDuplicateRegistration(code, email)
+        if (isDuplicate) {
+          return {
+            success: false,
+            message: "This email has already been registered for this event.",
+          }
+        }
+      }
     }
 
     // Create response
@@ -181,6 +273,9 @@ export async function submitFormResponse(code: string, formData: Record<string, 
       },
     })
 
+    // Send confirmation email (commented out)
+    // await sendRegistrationConfirmationEmail(response.id, code)
+
     revalidatePath(`/responses/${code}`)
     return { success: true, responseId: response.id }
   } catch (error) {
@@ -193,6 +288,9 @@ export async function submitFormResponse(code: string, formData: Record<string, 
 export async function getUserForms() {
   try {
     const user = await requireAuth()
+    if (!user) {
+      throw new Error("Authentication required. Please log in to view your forms.")
+    }
 
     const forms = await prisma.form.findMany({
       where: {
@@ -213,6 +311,9 @@ export async function getUserForms() {
     return forms
   } catch (error) {
     console.error("Error getting user forms:", error)
+    if (error instanceof Error) {
+      throw new Error(error.message)
+    }
     throw new Error("Failed to get user forms")
   }
 }
@@ -339,4 +440,3 @@ export async function checkInAttendee(code: string, responseId: string) {
     throw new Error("Failed to check in attendee")
   }
 }
-

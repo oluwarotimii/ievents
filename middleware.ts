@@ -1,6 +1,3 @@
-// Remove the runtime directive since we're not using Node.js features here
-// export const runtime = 'nodejs'
-
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
@@ -25,12 +22,13 @@ export async function middleware(request: NextRequest) {
   const isPublicPath = publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 
   // Get the session cookie
-  const sessionCookie = request.cookies.get("session")?.value
+  const sessionCookie = request.cookies.get("session_token")?.value
 
   // If the path is not public and there's no session cookie, redirect to login
   if (!isPublicPath && !sessionCookie) {
     const url = new URL("/login", request.url)
     url.searchParams.set("callbackUrl", encodeURI(request.url))
+    url.searchParams.set("error", encodeURIComponent("You must be logged in to access this page"))
     return NextResponse.redirect(url)
   }
 
@@ -54,4 +52,3 @@ export const config = {
     "/((?!_next/static|_next/image|favicon.ico|public).*)",
   ],
 }
-

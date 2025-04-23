@@ -4,16 +4,17 @@ import { useState, useRef } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Download, Copy, Check } from "lucide-react"
+import { Download, Copy, Check, Share2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 interface QRCodeGeneratorProps {
   url: string
   size?: number
   title?: string
+  showUrl?: boolean
 }
 
-export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGeneratorProps) {
+export default function QRCodeGenerator({ url, size = 200, title, showUrl = true }: QRCodeGeneratorProps) {
   const [copied, setCopied] = useState(false)
   const qrRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
@@ -29,6 +30,26 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
     setTimeout(() => {
       setCopied(false)
     }, 2000)
+  }
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: title || "QR Code",
+          text: "Check out this link",
+          url: url,
+        })
+        toast({
+          title: "Shared Successfully",
+          description: "The link has been shared",
+        })
+      } catch (error) {
+        console.error("Error sharing:", error)
+      }
+    } else {
+      handleCopyLink()
+    }
   }
 
   const handleDownload = () => {
@@ -50,7 +71,7 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
     const img = new Image()
     const svgData = new XMLSerializer().serializeToString(svgElement)
     const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" })
-    const url = URL.createObjectURL(svgBlob)
+    const blobUrl = URL.createObjectURL(svgBlob)
 
     img.onload = () => {
       // Draw white background
@@ -68,10 +89,10 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
       document.body.appendChild(downloadLink)
       downloadLink.click()
       document.body.removeChild(downloadLink)
-      URL.revokeObjectURL(url)
+      URL.revokeObjectURL(blobUrl)
     }
 
-    img.src = url
+    img.src = blobUrl
     img.crossOrigin = "anonymous"
   }
 
@@ -84,9 +105,13 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
 
         {title && <p className="text-center font-medium mb-2">{title}</p>}
 
-        <p className="text-sm text-muted-foreground mb-4 text-center break-all">{url}</p>
+        {showUrl && (
+          <p className="text-sm text-muted-foreground mb-4 text-center break-all max-w-full overflow-hidden text-ellipsis">
+            {url}
+          </p>
+        )}
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-center">
           <Button variant="outline" size="sm" onClick={handleCopyLink}>
             {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
             Copy Link
@@ -95,9 +120,12 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
             <Download className="h-4 w-4 mr-2" />
             Download QR
           </Button>
+          <Button variant="outline" size="sm" onClick={handleShare}>
+            <Share2 className="h-4 w-4 mr-2" />
+            Share
+          </Button>
         </div>
       </CardContent>
     </Card>
   )
 }
-

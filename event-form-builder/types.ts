@@ -14,5 +14,8 @@ export interface FormField {
 export interface PaymentField extends FormField {
   type: "payment"
   currency: string
+  amount: number
+  description?: string
+  isOptional?: boolean
+  itemType?: "registration" | "merchandise" | "donation" | "other"
 }
-

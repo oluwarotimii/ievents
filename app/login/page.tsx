@@ -8,16 +8,14 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
 import { loginUser, registerUser } from "../actions/auth-actions"
-import { Eye, EyeOff } from "lucide-react"
+import { AlertCircle, Loader2 } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
-  const [showLoginPassword, setShowLoginPassword] = useState(false)
-  const [showRegisterPassword, setShowRegisterPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
@@ -34,10 +32,17 @@ export default function LoginPage() {
         description: "Your email has been verified successfully. You can now log in.",
       })
     }
+
+    // Check for error message in URL
+    const errorMsg = searchParams.get("error")
+    if (errorMsg) {
+      setError(decodeURIComponent(errorMsg))
+    }
   }, [searchParams, toast])
 
   const handleLogin = async (formData: FormData) => {
     setIsLoading(true)
+    setError(null)
 
     try {
       const result = await loginUser(formData)
@@ -48,29 +53,22 @@ export default function LoginPage() {
           description: "You have been logged in successfully.",
         })
 
-        // Always redirect to the callback URL
-        router.push(callbackUrl)
-        router.refresh()
+        // Force a hard navigation to the dashboard
+        window.location.href = callbackUrl
       } else {
-        toast({
-          title: "Login Failed",
-          description: result.message,
-          variant: "destructive",
-        })
+        setError(result.message)
+        setIsLoading(false)
       }
     } catch (error) {
-      toast({
-        title: "Login Error",
-        description: "An unexpected error occurred.",
-        variant: "destructive",
-      })
-    } finally {
+      console.error("Login error:", error)
+      setError("An unexpected error occurred. Please try again.")
       setIsLoading(false)
     }
   }
 
   const handleRegister = async (formData: FormData) => {
     setIsLoading(true)
+    setError(null)
 
     try {
       const result = await registerUser(formData)
@@ -80,22 +78,16 @@ export default function LoginPage() {
           title: "Registration Successful",
           description: "Your account has been created. Please verify your email.",
         })
-        router.push("/verify-email")
-        router.refresh()
+
+        // Force a hard navigation to verify-email page
+        window.location.href = "/verify-email"
       } else {
-        toast({
-          title: "Registration Failed",
-          description: result.message,
-          variant: "destructive",
-        })
+        setError(result.message)
+        setIsLoading(false)
       }
     } catch (error) {
-      toast({
-        title: "Registration Error",
-        description: "An unexpected error occurred.",
-        variant: "destructive",
-      })
-    } finally {
+      console.error("Registration error:", error)
+      setError("An unexpected error occurred. Please try again.")
       setIsLoading(false)
     }
   }
@@ -108,6 +100,14 @@ export default function LoginPage() {
           <CardDescription>Login or create an account to manage your event forms</CardDescription>
         </CardHeader>
         <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
           <Tabs defaultValue="login" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="login">Login</TabsTrigger>
@@ -127,34 +127,23 @@ export default function LoginPage() {
                       <Link href="/forgot-password">Forgot password?</Link>
                     </Button>
                   </div>
-                  <div className="relative">
-                    <Input
-                      id="login-password"
-                      name="password"
-                      type={showLoginPassword ? "text" : "password"}
-                      placeholder="Enter your password"
-                      required
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-0 top-0 h-full px-3"
-                      onClick={() => setShowLoginPassword(!showLoginPassword)}
-                    >
-                      {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      <span className="sr-only">{showLoginPassword ? "Hide password" : "Show password"}</span>
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox id="remember-me" name="rememberMe" />
-                  <Label htmlFor="remember-me" className="text-sm font-normal">
-                    Remember me for 30 days
-                  </Label>
+                  <Input
+                    id="login-password"
+                    name="password"
+                    type="password"
+                    placeholder="Enter your password"
+                    required
+                  />
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Logging in..." : "Login"}
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Logging in...
+                    </>
+                  ) : (
+                    "Login"
+                  )}
                 </Button>
               </form>
             </TabsContent>
@@ -177,52 +166,24 @@ export default function LoginPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="register-password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="register-password"
-                      name="password"
-                      type={showRegisterPassword ? "text" : "password"}
-                      placeholder="Create a password (min. 8 characters)"
-                      required
-                      minLength={8}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-0 top-0 h-full px-3"
-                      onClick={() => setShowRegisterPassword(!showRegisterPassword)}
-                    >
-                      {showRegisterPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      <span className="sr-only">{showRegisterPassword ? "Hide password" : "Show password"}</span>
-                    </Button>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="register-confirm-password">Confirm Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="register-confirm-password"
-                      name="confirmPassword"
-                      type={showConfirmPassword ? "text" : "password"}
-                      placeholder="Confirm your password"
-                      required
-                      minLength={8}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-0 top-0 h-full px-3"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    >
-                      {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      <span className="sr-only">{showConfirmPassword ? "Hide password" : "Show password"}</span>
-                    </Button>
-                  </div>
+                  <Input
+                    id="register-password"
+                    name="password"
+                    type="password"
+                    placeholder="Create a password (min. 8 characters)"
+                    required
+                    minLength={8}
+                  />
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Creating account..." : "Create Account"}
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating account...
+                    </>
+                  ) : (
+                    "Create Account"
+                  )}
                 </Button>
               </form>
             </TabsContent>
@@ -237,4 +198,3 @@ export default function LoginPage() {
     </div>
   )
 }
-

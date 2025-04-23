@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowRight, LogIn, FileText, Users } from "lucide-react"
+import { ArrowRight, LogIn, FileText, Users, Loader2 } from "lucide-react"
 import { getFormByCode } from "./actions/form-actions"
 
 export default function HomePage() {
@@ -72,14 +72,14 @@ export default function HomePage() {
             <Button size="lg" onClick={() => router.push("/pricing")} className="w-full sm:w-auto">
               View Pricing
             </Button>
-            <Button
+            {/* <Button
               size="lg"
               variant="outline"
               onClick={() => document.getElementById("get-started")?.scrollIntoView({ behavior: "smooth" })}
               className="w-full sm:w-auto"
             >
               Get Started
-            </Button>
+            </Button> */}
             <Button size="lg" variant="secondary" asChild className="w-full sm:w-auto">
               <Link href="/login">
                 <LogIn className="mr-2 h-5 w-5" />
@@ -199,7 +199,14 @@ export default function HomePage() {
                   />
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Checking..." : "Join Event"}
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Checking...
+                    </>
+                  ) : (
+                    "Join Event"
+                  )}
                 </Button>
               </form>
             </CardContent>
@@ -235,4 +242,3 @@ export default function HomePage() {
     </div>
   )
 }
-
