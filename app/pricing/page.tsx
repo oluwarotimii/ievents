@@ -27,7 +27,7 @@ export default function PricingPage() {
           <CardHeader>
             <CardTitle className="text-2xl">Free</CardTitle>
             <div className="mt-4 flex items-baseline text-5xl font-extrabold">
-              $0<span className="ml-1 text-2xl font-medium text-muted-foreground">/mo</span>
+            ₦0<span className="ml-1 text-2xl font-medium text-muted-foreground">/mo</span>
             </div>
             <CardDescription className="mt-5">Perfect for small events and personal gatherings.</CardDescription>
           </CardHeader>
@@ -70,7 +70,7 @@ export default function PricingPage() {
           <CardHeader>
             <CardTitle className="text-2xl">Pro</CardTitle>
             <div className="mt-4 flex items-baseline text-5xl font-extrabold">
-              $29<span className="ml-1 text-2xl font-medium text-muted-foreground">/mo</span>
+            ₦5000<span className="ml-1 text-2xl font-medium text-muted-foreground">/mo</span>
             </div>
             <CardDescription className="mt-5">For professionals managing multiple events.</CardDescription>
           </CardHeader>
@@ -116,9 +116,9 @@ export default function PricingPage() {
         {/* Enterprise Plan */}
         <Card className="flex flex-col border-muted-foreground/20">
           <CardHeader>
-            <CardTitle className="text-2xl">Enterprise</CardTitle>
+            <CardTitle className="text-2xl">One time use</CardTitle>
             <div className="mt-4 flex items-baseline text-5xl font-extrabold">
-              $99<span className="ml-1 text-2xl font-medium text-muted-foreground">/mo</span>
+            ₦6000<span className="ml-1 text-2xl font-medium text-muted-foreground">/mo</span>
             </div>
             <CardDescription className="mt-5">For organizations with advanced needs.</CardDescription>
           </CardHeader>
@@ -140,18 +140,18 @@ export default function PricingPage() {
                 <Check className="h-5 w-5 text-green-500 shrink-0 mr-3" />
                 <span>Advanced analytics</span>
               </li>
-              <li className="flex items-start">
+              {/* <li className="flex items-start">
                 <Check className="h-5 w-5 text-green-500 shrink-0 mr-3" />
                 <span>API access</span>
-              </li>
-              <li className="flex items-start">
+              </li> */}
+              {/* <li className="flex items-start">
                 <Check className="h-5 w-5 text-green-500 shrink-0 mr-3" />
                 <span>Dedicated account manager</span>
-              </li>
-              <li className="flex items-start">
+              </li> */}
+              {/* <li className="flex items-start">
                 <Check className="h-5 w-5 text-green-500 shrink-0 mr-3" />
                 <span>Custom integrations</span>
-              </li>
+              </li> */}
             </ul>
           </CardContent>
           <CardFooter>
