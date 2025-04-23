@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { LoadingButton } from "@/components/ui/loading-button"
 import { useToast } from "@/hooks/use-toast"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
@@ -27,7 +27,7 @@ import { Badge } from "@/components/ui/badge"
 import { getUserForms, deleteForm } from "../actions/form-actions"
 import { logoutUser, getCurrentUserSubscriptionInfo } from "../actions/auth-actions"
 import { useRouter } from "next/navigation"
-import DashboardLoading from "./loading"
+import { useLoading } from "@/contexts/loading-context"
 
 interface FormData {
   id: number
@@ -48,6 +48,7 @@ export default function DashboardPage() {
   const [username, setUsername] = useState<string>("")
   const [greeting, setGreeting] = useState<string>("Welcome")
   const { toast } = useToast()
+  const { isLoading, startLoading, stopLoading } = useLoading()
   const [subscriptionInfo, setSubscriptionInfo] = useState<{
     plan: string
     formLimit: number | null
@@ -113,6 +114,7 @@ export default function DashboardPage() {
   }
 
   const handleLogout = async () => {
+    startLoading("logout")
     try {
       await logoutUser()
       // The logoutUser function should handle the redirect
@@ -123,11 +125,14 @@ export default function DashboardPage() {
         description: "Failed to log out. Please try again.",
         variant: "destructive",
       })
+    } finally {
+      stopLoading("logout")
     }
   }
 
   const handleDeleteForm = async (code: string) => {
     setDeletingForm(code)
+    startLoading(`delete-${code}`)
     try {
       await deleteForm(code)
       // Refresh the forms list after deletion
@@ -145,6 +150,7 @@ export default function DashboardPage() {
       })
     } finally {
       setDeletingForm(null)
+      stopLoading(`delete-${code}`)
     }
   }
 
@@ -155,11 +161,10 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      // <div className="container flex flex-col items-center justify-center min-h-screen">
-      //   <Loader2 className="h-8 w-8 animate-spin mb-4" />
-      //   <p>Loading dashboard...</p>
-      // </div>
-      <DashboardLoading />
+      <div className="container flex flex-col items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin mb-4" />
+        <p>Loading dashboard...</p>
+      </div>
     )
   }
 
@@ -179,16 +184,23 @@ export default function DashboardPage() {
               <CardDescription>Total Forms: {forms.length}</CardDescription>
             </div>
             <div className="flex space-x-2">
-              <Button variant="outline" onClick={loadDashboardData} disabled={refreshing} title="Refresh dashboard">
+              <LoadingButton
+                variant="outline"
+                onClick={loadDashboardData}
+                disabled={refreshing}
+                title="Refresh dashboard"
+                loadingId="refresh-dashboard"
+                loadingText="Refreshing..."
+              >
                 <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              </Button>
-              {/* <Button asChild>
+              </LoadingButton>
+              <LoadingButton asChild loadingId="upgrade-plan" loadingText="Loading...">
                 <Link href="/pricing">Upgrade Plan</Link>
-              </Button> */}
-              <Button variant="outline" onClick={handleLogout}>
+              </LoadingButton>
+              <LoadingButton variant="outline" onClick={handleLogout} loadingId="logout" loadingText="Logging out...">
                 <LogOut className="h-4 w-4 mr-2" />
                 Logout
-              </Button>
+              </LoadingButton>
             </div>
           </div>
         </CardHeader>
@@ -212,11 +224,11 @@ export default function DashboardPage() {
                   </p>
                 )}
               </div>
-              <Button variant="outline" asChild>
+              <LoadingButton variant="outline" asChild loadingId="manage-subscription" loadingText="Loading...">
                 <Link href="/subscription">
                   {subscriptionInfo.plan === "FREE" ? "Upgrade Plan" : "Manage Subscription"}
                 </Link>
-              </Button>
+              </LoadingButton>
             </div>
           )}
 
@@ -226,15 +238,16 @@ export default function DashboardPage() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
+              disabled={isLoading}
             />
             {/* Only show the Create Form button if user hasn't reached the limit */}
             {!hasReachedLimit && (
-              <Button asChild>
+              <LoadingButton asChild loadingId="create-form" loadingText="Loading...">
                 <Link href="/create">
                   <Plus className="h-4 w-4 mr-2" />
                   Create New Form
                 </Link>
-              </Button>
+              </LoadingButton>
             )}
           </div>
 
@@ -257,9 +270,9 @@ export default function DashboardPage() {
             <div className="text-center py-8">
               <p className="text-muted-foreground">You haven't created any forms yet.</p>
               {!hasReachedLimit && (
-                <Button asChild className="mt-4">
+                <LoadingButton asChild className="mt-4" loadingId="create-first-form" loadingText="Loading...">
                   <Link href="/create">Create Your First Form</Link>
-                </Button>
+                </LoadingButton>
               )}
             </div>
           ) : (
@@ -289,54 +302,98 @@ export default function DashboardPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end space-x-2">
-                          <Button variant="ghost" size="icon" asChild>
+                          <LoadingButton
+                            variant="ghost"
+                            size="icon"
+                            asChild
+                            loadingId={`edit-${form.code}`}
+                            loadingText=""
+                          >
                             <Link href={`/create/${form.code}`} title="Edit Form">
                               <Edit className="h-4 w-4" />
                             </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" asChild>
+                          </LoadingButton>
+                          <LoadingButton
+                            variant="ghost"
+                            size="icon"
+                            asChild
+                            loadingId={`view-${form.code}`}
+                            loadingText=""
+                          >
                             <Link href={`/view/${form.code}`} title="View Form">
                               <Eye className="h-4 w-4" />
                             </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" asChild>
+                          </LoadingButton>
+                          <LoadingButton
+                            variant="ghost"
+                            size="icon"
+                            asChild
+                            loadingId={`responses-${form.code}`}
+                            loadingText=""
+                          >
                             <Link href={`/responses/${form.code}`} title="View Responses">
                               <ClipboardList className="h-4 w-4" />
                             </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" asChild>
+                          </LoadingButton>
+                          <LoadingButton
+                            variant="ghost"
+                            size="icon"
+                            asChild
+                            loadingId={`analytics-${form.code}`}
+                            loadingText=""
+                          >
                             <Link href={`/analytics/${form.code}`} title="View Analytics">
                               <BarChart3 className="h-4 w-4" />
                             </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" asChild>
+                          </LoadingButton>
+                          <LoadingButton
+                            variant="ghost"
+                            size="icon"
+                            asChild
+                            loadingId={`qr-${form.code}`}
+                            loadingText=""
+                          >
                             <Link href={`/qr-codes/${form.code}`} title="QR Codes">
                               <QrCode className="h-4 w-4" />
                             </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" asChild>
+                          </LoadingButton>
+                          <LoadingButton
+                            variant="ghost"
+                            size="icon"
+                            asChild
+                            loadingId={`checkin-${form.code}`}
+                            loadingText=""
+                          >
                             <Link href={`/manual-check-in/${form.code}`} title="Manual Check-In">
                               <UserCheck className="h-4 w-4" />
                             </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" asChild>
+                          </LoadingButton>
+                          <LoadingButton
+                            variant="ghost"
+                            size="icon"
+                            asChild
+                            loadingId={`email-${form.code}`}
+                            loadingText=""
+                          >
                             <Link href={`/email-manager/${form.code}`} title="Email Manager">
                               <Mail className="h-4 w-4" />
                             </Link>
-                          </Button>
-                          <Button
+                          </LoadingButton>
+                          <LoadingButton
                             variant="ghost"
                             size="icon"
                             onClick={() => handleDeleteForm(form.code)}
                             disabled={deletingForm === form.code}
                             title="Delete Form"
+                            loadingId={`delete-${form.code}`}
+                            loadingText=""
                           >
                             {deletingForm === form.code ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Trash2 className="h-4 w-4" />
                             )}
-                          </Button>
+                          </LoadingButton>
                         </div>
                       </TableCell>
                     </TableRow>

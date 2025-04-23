@@ -29,7 +29,15 @@ async function generateUniqueCode(): Promise<string> {
 }
 
 // Create a new form
-export async function createForm(formName: string, category: string | null, fields: FormField[]) {
+export async function createForm(
+  formName: string,
+  category: string | null,
+  fields: FormField[],
+  collectsPayments = false,
+  paymentAmount: number | null = null,
+  paymentTitle: string | null = null,
+  paymentDescription: string | null = null,
+) {
   try {
     const user = await requireAuth()
 
@@ -49,6 +57,10 @@ export async function createForm(formName: string, category: string | null, fiel
         name: formName,
         category,
         userId: user.id,
+        collectsPayments,
+        paymentAmount,
+        paymentTitle,
+        paymentDescription,
         fields: {
           create: fields.map((field, index) => ({
             fieldId: field.id,

@@ -1,45 +1,26 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Download, Copy, Check } from "lucide-react"
+import { Download, Copy, Check, Share2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { shortenUrl } from "@/app/actions/url-actions"
 
 interface QRCodeGeneratorProps {
   url: string
   size?: number
   title?: string
+  showUrl?: boolean
 }
 
-export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGeneratorProps) {
+export default function QRCodeGenerator({ url, size = 200, title, showUrl = true }: QRCodeGeneratorProps) {
   const [copied, setCopied] = useState(false)
-  const [shortUrl, setShortUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
   const qrRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
-  useEffect(() => {
-    async function createShortUrl() {
-      try {
-        const shortened = await shortenUrl(url)
-        setShortUrl(shortened)
-      } catch (error) {
-        console.error("Error shortening URL:", error)
-        setShortUrl(url) // Fallback to original URL
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    createShortUrl()
-  }, [url])
-
   const handleCopyLink = () => {
-    const urlToCopy = shortUrl || url
-    navigator.clipboard.writeText(urlToCopy)
+    navigator.clipboard.writeText(url)
     setCopied(true)
     toast({
       title: "Link Copied",
@@ -49,6 +30,26 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
     setTimeout(() => {
       setCopied(false)
     }, 2000)
+  }
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: title || "QR Code",
+          text: "Check out this link",
+          url: url,
+        })
+        toast({
+          title: "Shared Successfully",
+          description: "The link has been shared",
+        })
+      } catch (error) {
+        console.error("Error sharing:", error)
+      }
+    } else {
+      handleCopyLink()
+    }
   }
 
   const handleDownload = () => {
@@ -70,7 +71,7 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
     const img = new Image()
     const svgData = new XMLSerializer().serializeToString(svgElement)
     const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" })
-    const url = URL.createObjectURL(svgBlob)
+    const blobUrl = URL.createObjectURL(svgBlob)
 
     img.onload = () => {
       // Draw white background
@@ -88,47 +89,43 @@ export default function QRCodeGenerator({ url, size = 200, title }: QRCodeGenera
       document.body.appendChild(downloadLink)
       downloadLink.click()
       document.body.removeChild(downloadLink)
-      URL.revokeObjectURL(url)
+      URL.revokeObjectURL(blobUrl)
     }
 
-    img.src = url
+    img.src = blobUrl
     img.crossOrigin = "anonymous"
   }
 
   return (
     <Card className="w-full">
       <CardContent className="pt-6 flex flex-col items-center">
-        {loading ? (
-          <div
-            className="bg-white p-4 rounded-lg mb-4 flex items-center justify-center"
-            style={{ width: size, height: size }}
-          >
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
-          </div>
-        ) : (
-          <div ref={qrRef} className="bg-white p-4 rounded-lg mb-4">
-            <QRCodeSVG value={shortUrl || url} size={size} />
-          </div>
-        )}
+        <div ref={qrRef} className="bg-white p-4 rounded-lg mb-4">
+          <QRCodeSVG value={url} size={size} />
+        </div>
 
         {title && <p className="text-center font-medium mb-2">{title}</p>}
 
-        <p className="text-sm text-muted-foreground mb-4 text-center break-all">
-          {loading ? "Generating shortened URL..." : shortUrl || url}
-        </p>
+        {showUrl && (
+          <p className="text-sm text-muted-foreground mb-4 text-center break-all max-w-full overflow-hidden text-ellipsis">
+            {url}
+          </p>
+        )}
 
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleCopyLink} disabled={loading}>
+        <div className="flex gap-2 flex-wrap justify-center">
+          <Button variant="outline" size="sm" onClick={handleCopyLink}>
             {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
             Copy Link
           </Button>
-          <Button variant="outline" size="sm" onClick={handleDownload} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={handleDownload}>
             <Download className="h-4 w-4 mr-2" />
             Download QR
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleShare}>
+            <Share2 className="h-4 w-4 mr-2" />
+            Share
           </Button>
         </div>
       </CardContent>
     </Card>
   )
 }
-

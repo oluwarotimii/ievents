@@ -3,7 +3,7 @@
 import { Textarea } from "@/components/ui/textarea"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
@@ -23,6 +23,8 @@ interface EventFormBuilderProps {
   onChange: (fields: FormField[]) => void
   onNameChange?: (name: string) => void
   onCategoryChange?: (category: string | null) => void
+  initialFormName?: string
+  initialCategory?: string | null
 }
 
 export default function EventFormBuilder({
@@ -31,11 +33,30 @@ export default function EventFormBuilder({
   onChange,
   onNameChange,
   onCategoryChange,
+  initialFormName,
+  initialCategory,
 }: EventFormBuilderProps) {
-  const [formName, setFormName] = useState<string>("Untitled Event Registration Form")
+  const [formName, setFormName] = useState<string>(initialFormName || "Untitled Event Registration Form")
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | null>(null)
   const [showPreview, setShowPreview] = useState(false)
   const { toast } = useToast()
+
+  // Set initial category if provided
+  useEffect(() => {
+    if (initialCategory) {
+      const category = eventCategories.find((c) => c.name === initialCategory)
+      if (category) {
+        setSelectedCategory(category)
+      }
+    }
+  }, [initialCategory])
+
+  // Update form name when initialFormName changes
+  useEffect(() => {
+    if (initialFormName) {
+      setFormName(initialFormName)
+    }
+  }, [initialFormName])
 
   const handleFormNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value
@@ -253,6 +274,7 @@ export default function EventFormBuilder({
         </CardHeader>
         <CardContent>
           <Select
+            value={selectedCategory?.name}
             onValueChange={(value) =>
               handleCategoryChange(eventCategories.find((c) => c.name === value) as EventCategory)
             }

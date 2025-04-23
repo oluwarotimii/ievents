@@ -123,6 +123,7 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
         const paymentField = field as PaymentField
         const isOptional = paymentField.isOptional || false
         const amount = paymentField.amount || 0
+        const currency = paymentField.currency || "NGN"
 
         return (
           <div className="mb-4">
@@ -133,7 +134,7 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
               </Label>
               <div className="text-right">
                 <span className="font-medium">
-                  {paymentField.currency} {amount.toLocaleString()}
+                  {currency} {amount.toLocaleString()}
                 </span>
               </div>
             </div>
@@ -146,7 +147,7 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
               <div className="flex items-center space-x-2 mt-2">
                 <Checkbox id={`${field.id}-checkbox`} />
                 <Label htmlFor={`${field.id}-checkbox`}>
-                  Add this item ({paymentField.currency} {amount.toLocaleString()})
+                  Add this item ({currency} {amount.toLocaleString()})
                 </Label>
               </div>
             )}
@@ -179,6 +180,7 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
                     .map((field, index) => {
                       const paymentField = field as PaymentField
                       const amount = paymentField.amount || 0
+                      const currency = paymentField.currency || "NGN"
                       return (
                         <div key={index} className="flex justify-between text-sm">
                           <span>
@@ -186,7 +188,7 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
                             {paymentField.isOptional ? " (Optional)" : ""}
                           </span>
                           <span>
-                            {paymentField.currency} {amount.toLocaleString()}
+                            {currency} {amount.toLocaleString()}
                           </span>
                         </div>
                       )

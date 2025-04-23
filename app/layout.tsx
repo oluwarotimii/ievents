@@ -2,7 +2,8 @@ import type React from "react"
 import type { Metadata } from "next"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
-import DebugSession from "@/components/debug-session"
+import Header from "@/components/Header"
+import { LoadingProvider } from "@/components/loading-context"
 
 export const metadata: Metadata = {
   title: "Eventflow",
@@ -15,14 +16,15 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <body>
         <ThemeProvider attribute="class" defaultTheme="light">
-          {children}
-          <DebugSession />
+          <LoadingProvider>
+            <Header />
+            <main>{children}</main>
+          </LoadingProvider>
         </ThemeProvider>
       </body>
     </html>
   )
 }
-
