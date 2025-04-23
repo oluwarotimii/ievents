@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { format } from "date-fns"
 import { Download, Share2, Check } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import QRCode from "qrcode.react"
+import { QRCode } from "qrcode.react"
 import html2canvas from "html2canvas"
 
 interface PaymentReceiptProps {
