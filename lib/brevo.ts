@@ -83,3 +83,12 @@ export async function sendTransactionalEmail(params: BrevoEmailParams): Promise<
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" }
   }
 }
+
+
+export const createList = () => {
+  // your code here
+};
+
+export const addContactsToList = () => {
+  // your code here
+};
