@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { format } from "date-fns"
 import { Download, Share2, Check } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import QRCode from "qrcode.react"
+import { QRCodeSVG } from "qrcode.react" // Fixed import
 import html2canvas from "html2canvas"
 
 interface PaymentReceiptProps {
@@ -123,7 +123,7 @@ export default function PaymentReceipt({ transaction }: PaymentReceiptProps) {
         <CardContent className="pt-6 space-y-4">
           <div className="flex justify-between">
             <div className="text-center mx-auto">
-              <QRCode value={`${transaction.reference}`} size={120} />
+              <QRCodeSVG value={`${transaction.reference}`} size={120} />
               <p className="text-xs mt-1 font-mono">{transaction.reference}</p>
             </div>
           </div>
@@ -185,4 +185,3 @@ export default function PaymentReceipt({ transaction }: PaymentReceiptProps) {
     </div>
   )
 }
-
