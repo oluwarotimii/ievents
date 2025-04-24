@@ -64,9 +64,9 @@ export async function testPaystackConnection(): Promise<{ success: boolean; mess
     return { success: true, message: "Paystack API connection successful" }
   } catch (error) {
     console.error("Paystack connection test error:", error)
-    return { 
-      success: false, 
-      message: error instanceof Error ? error.message : "Failed to connect to Paystack API" 
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to connect to Paystack API",
     }
   }
 }
@@ -112,7 +112,7 @@ export async function initializeTransaction(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`Failed to initialize transaction: ${response.statusText}. ${errorData.message || ''}`)
+      throw new Error(`Failed to initialize transaction: ${response.statusText}. ${errorData.message || ""}`)
     }
 
     return response.json()
@@ -137,7 +137,7 @@ export async function verifyTransaction(reference: string): Promise<PaystackVeri
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`Failed to verify transaction: ${response.statusText}. ${errorData.message || ''}`)
+      throw new Error(`Failed to verify transaction: ${response.statusText}. ${errorData.message || ""}`)
     }
 
     return response.json()
@@ -198,7 +198,7 @@ export async function createSubaccount(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`Failed to create subaccount: ${response.statusText}. ${errorData.message || ''}`)
+      throw new Error(`Failed to create subaccount: ${response.statusText}. ${errorData.message || ""}`)
     }
 
     return response.json()
@@ -224,7 +224,7 @@ export async function listBanks(): Promise<any> {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`Failed to fetch banks: ${response.statusText}. ${errorData.message || ''}`)
+      throw new Error(`Failed to fetch banks: ${response.statusText}. ${errorData.message || ""}`)
     }
 
     return response.json()

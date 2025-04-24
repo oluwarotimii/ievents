@@ -124,7 +124,7 @@ export default function PaymentReceipt({ transaction }: PaymentReceiptProps) {
           <div className="flex justify-between">
             <div className="text-center mx-auto">
               <QRCodeSVG value={`${transaction.reference}`} size={120} />
-              <p className="text-xs mt-1 font-mono">{transaction.reference}</p>
+              <p className="text-xs mt-1 font-mono break-all">{transaction.reference}</p>
             </div>
           </div>
 
@@ -132,17 +132,17 @@ export default function PaymentReceipt({ transaction }: PaymentReceiptProps) {
             <h3 className="text-lg font-semibold text-center mb-4">{transaction.formName}</h3>
 
             <div className="space-y-2">
-              <div className="flex justify-between">
+              <div className="flex flex-wrap justify-between">
                 <span className="text-sm text-gray-600">Paid By:</span>
-                <span className="font-medium">{transaction.customerName || transaction.customerEmail}</span>
+                <span className="font-medium text-right">{transaction.customerName || transaction.customerEmail}</span>
               </div>
 
-              <div className="flex justify-between">
+              <div className="flex flex-wrap justify-between">
                 <span className="text-sm text-gray-600">Date:</span>
-                <span>{formatDate(transaction.paymentDate || transaction.createdAt)}</span>
+                <span className="text-right">{formatDate(transaction.paymentDate || transaction.createdAt)}</span>
               </div>
 
-              <div className="flex justify-between">
+              <div className="flex flex-wrap justify-between">
                 <span className="text-sm text-gray-600">Status:</span>
                 <span className="text-green-600 font-medium">Paid</span>
               </div>
@@ -166,18 +166,18 @@ export default function PaymentReceipt({ transaction }: PaymentReceiptProps) {
             </div>
           </div>
         </CardContent>
-        <CardFooter className="bg-gray-50 border-t flex justify-between">
-          <p className="text-xs text-gray-500">Receipt ID: {transaction.id}</p>
-          <p className="text-xs text-gray-500">Secured by Paystack</p>
+        <CardFooter className="bg-gray-50 border-t flex flex-wrap justify-between text-xs text-gray-500 py-3">
+          <p>Receipt ID: {transaction.id}</p>
+          <p>Secured by Paystack</p>
         </CardFooter>
       </Card>
 
-      <div className="flex justify-center space-x-4 mt-4">
-        <Button variant="outline" onClick={handleDownload} disabled={downloading}>
+      <div className="flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-4 mt-4">
+        <Button variant="outline" onClick={handleDownload} disabled={downloading} className="w-full sm:w-auto">
           <Download className="h-4 w-4 mr-2" />
           {downloading ? "Downloading..." : "Download Receipt"}
         </Button>
-        <Button variant="outline" onClick={handleShare}>
+        <Button variant="outline" onClick={handleShare} className="w-full sm:w-auto">
           <Share2 className="h-4 w-4 mr-2" />
           Share
         </Button>

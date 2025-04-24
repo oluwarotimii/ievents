@@ -12,7 +12,13 @@ import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
 import { CheckCircle2, Loader2, CreditCard } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useLoading } from "@/components/loading-context"
+import { useLoading } from "@/contexts/loading-context"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Button } from "@/components/ui/button"
 
 export default function ViewFormPage({ params }: { params: { code: string } }) {
   // Unwrap the params object using React.use()
@@ -31,6 +37,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   const router = useRouter()
   const { toast } = useToast()
   const { isLoading, startLoading, stopLoading } = useLoading()
+  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
 
   useEffect(() => {
     loadForm()
@@ -171,13 +178,16 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       setSubmittedData(submissionData)
       setResponseId(result.responseId)
 
-      // If there are selected payment items, redirect to payment
+      // If there are selected payment items, proceed to payment
       const totalPayment = calculateTotalPayment()
       if (totalPayment > 0) {
-        await handlePayment(result.responseId, totalPayment)
+        // Instead of immediately redirecting to payment, show a payment confirmation step
+        setShowPaymentConfirmation(true)
+        stopLoading("form-submit")
       } else {
         // Show success screen if no payment needed
         setSubmissionSuccess(true)
+        stopLoading("form-submit")
       }
     } catch (error) {
       console.error("Error submitting form:", error)
@@ -186,7 +196,6 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         description: error instanceof Error ? error.message : "Failed to submit your registration. Please try again.",
         variant: "destructive",
       })
-    } finally {
       stopLoading("form-submit")
     }
   }
@@ -220,8 +229,17 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         throw new Error(paymentResult.message || "Failed to initialize payment")
       }
 
-      // Redirect to payment page
-      window.location.href = paymentResult.paymentUrl
+      // Show loading message before redirect
+      toast({
+        title: "Redirecting to Payment",
+        description: "Please wait while we redirect you to the payment page...",
+      })
+
+      // Short delay before redirect for better UX
+      setTimeout(() => {
+        // Redirect to payment page
+        window.location.href = paymentResult.paymentUrl
+      }, 1000)
     } catch (error) {
       console.error("Error processing payment:", error)
       toast({
@@ -231,8 +249,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       })
 
       // Show success screen anyway, they can try payment again later
+      setShowPaymentConfirmation(false)
       setSubmissionSuccess(true)
-    } finally {
       stopLoading("payment-process")
     }
   }
@@ -269,6 +287,88 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
 
   if (!formExists) {
     return null // Will redirect in useEffect
+  }
+
+  // Payment confirmation screen
+  if (showPaymentConfirmation && responseId) {
+    const totalPayment = calculateTotalPayment()
+    const platformFee = calculatePlatformFee(totalPayment)
+    const grandTotal = totalPayment + platformFee
+
+    return (
+      <div className="container mx-auto py-6 sm:py-8 px-4 w-full max-w-md">
+        <Card className="w-full shadow-lg">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl sm:text-2xl text-center">Complete Your Payment</CardTitle>
+            <CardDescription className="text-center">
+              Your registration for {formName} has been received
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-md">
+              <h3 className="font-medium text-blue-800 mb-3">Payment Summary</h3>
+              <div className="bg-white p-4 rounded-md">
+                {formFields
+                  .filter((field) => field.type === "payment" && selectedPaymentItems[field.id])
+                  .map((field, index) => {
+                    const paymentField = field as PaymentField
+                    return (
+                      <div key={index} className="flex justify-between mb-2">
+                        <span className="text-sm">{field.label}</span>
+                        <span>
+                          {paymentField.currency} {paymentField.amount.toLocaleString()}
+                        </span>
+                      </div>
+                    )
+                  })}
+                <div className="flex justify-between mb-2">
+                  <span className="text-sm">Platform Fee (2%):</span>
+                  <span>₦{platformFee.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between font-medium border-t border-blue-100 pt-2 mt-2">
+                  <span>Total:</span>
+                  <span>₦{grandTotal.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-4 bg-gray-50 rounded-md">
+                <h4 className="font-medium mb-2">Payment Information</h4>
+                <p className="text-sm text-muted-foreground mb-2">
+                  You'll be redirected to Paystack to complete your payment securely.
+                </p>
+                <div className="flex items-center space-x-2 text-sm">
+                  <CreditCard className="h-4 w-4 text-green-600" />
+                  <span>Secure payment powered by Paystack</span>
+                </div>
+              </div>
+
+              <LoadingButton
+                className="w-full h-12 text-lg"
+                onClick={() => handlePayment(responseId, totalPayment)}
+                loadingId="payment-process"
+                loadingText="Processing payment..."
+              >
+                <CreditCard className="h-5 w-5 mr-2" />
+                Proceed to Payment
+              </LoadingButton>
+
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setShowPaymentConfirmation(false)
+                  setSubmissionSuccess(true)
+                }}
+              >
+                Pay Later
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   // If submission was successful
@@ -312,15 +412,18 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                         <span>₦{(totalPayment + calculatePlatformFee(totalPayment)).toLocaleString()}</span>
                       </div>
                     </div>
-                    <LoadingButton
-                      className="w-full"
-                      onClick={() => handlePayment(responseId, totalPayment)}
-                      loadingId="payment-process"
-                      loadingText="Processing payment..."
-                    >
-                      <CreditCard className="h-4 w-4 mr-2" />
-                      Pay Now
-                    </LoadingButton>
+                    <div className="space-y-3">
+                      <LoadingButton
+                        className="w-full"
+                        onClick={() => handlePayment(responseId, totalPayment)}
+                        loadingId="payment-process"
+                        loadingText="Processing payment..."
+                      >
+                        <CreditCard className="h-4 w-4 mr-2" />
+                        Pay Now
+                      </LoadingButton>
+                      <p className="text-xs text-center text-muted-foreground">Secure payment powered by Paystack</p>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -330,7 +433,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               You will receive a confirmation email shortly with all the event details.
             </p>
           </CardContent>
-          <CardFooter className="flex justify-center gap-4">
+          <CardFooter className="flex flex-col sm:flex-row justify-center gap-4">
             <LoadingButton
               variant="outline"
               onClick={() => {
@@ -340,10 +443,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               }}
               loadingId="register-another"
               loadingText="Loading..."
+              className="w-full sm:w-auto"
             >
               Register Another Person
             </LoadingButton>
-            <LoadingButton asChild loadingId="return-home" loadingText="Loading...">
+            <LoadingButton asChild loadingId="return-home" loadingText="Loading..." className="w-full sm:w-auto">
               <Link href="/">Return to Home</Link>
             </LoadingButton>
           </CardFooter>
@@ -366,121 +470,122 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       case "phone":
         return (
           <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <input
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Input
               id={field.id}
               type={field.type === "email" ? "email" : "text"}
-              className="w-full p-2 border rounded-md"
               required={field.required}
               value={formValues[field.id] || ""}
               onChange={(e) => handleInputChange(field.id, e.target.value)}
               disabled={isLoading}
+              placeholder={`Enter ${field.label.toLowerCase()}`}
+              className="w-full"
             />
           </div>
         )
       case "date":
         return (
           <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <input
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Input
               id={field.id}
               type="date"
-              className="w-full p-2 border rounded-md"
               required={field.required}
               value={formValues[field.id] || ""}
               onChange={(e) => handleInputChange(field.id, e.target.value)}
               disabled={isLoading}
+              className="w-full"
             />
           </div>
         )
       case "textarea":
         return (
           <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <textarea
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Textarea
               id={field.id}
-              className="w-full p-2 border rounded-md"
               required={field.required}
               value={formValues[field.id] || ""}
               onChange={(e) => handleInputChange(field.id, e.target.value)}
               disabled={isLoading}
+              placeholder={`Enter ${field.label.toLowerCase()}`}
+              className="w-full min-h-[100px]"
             />
           </div>
         )
       case "select":
         return (
           <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <select
-              id={field.id}
-              className="w-full p-2 border rounded-md"
-              required={field.required}
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Select
               value={formValues[field.id] || ""}
-              onChange={(e) => handleInputChange(field.id, e.target.value)}
+              onValueChange={(value) => handleInputChange(field.id, value)}
               disabled={isLoading}
             >
-              <option value="">Select an option</option>
-              {field.options?.map((option, index) => (
-                <option key={index} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id={field.id} className="w-full">
+                <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+              </SelectTrigger>
+              <SelectContent>
+                {field.options?.map((option, index) => (
+                  <SelectItem key={index} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )
       case "radio":
         return (
           <div className="mb-4">
-            <fieldset>
-              <legend className="block text-sm font-medium mb-1">
-                {field.label}
-                {field.required && "*"}
-              </legend>
+            <Label className="mb-1.5 block">
+              {field.label}
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <RadioGroup
+              value={formValues[field.id] || ""}
+              onValueChange={(value) => handleInputChange(field.id, value)}
+              className="mt-2 space-y-2"
+            >
               {field.options?.map((option, index) => (
-                <div key={index} className="flex items-center space-x-2 mt-1">
-                  <input
-                    type="radio"
-                    id={`${field.id}-${index}`}
-                    name={field.id}
-                    value={option}
-                    required={field.required}
-                    checked={formValues[field.id] === option}
-                    onChange={() => handleInputChange(field.id, option)}
-                    disabled={isLoading}
-                  />
-                  <label htmlFor={`${field.id}-${index}`}>{option}</label>
+                <div key={index} className="flex items-center space-x-2">
+                  <RadioGroupItem value={option} id={`${field.id}-${index}`} disabled={isLoading} />
+                  <Label htmlFor={`${field.id}-${index}`} className="cursor-pointer">
+                    {option}
+                  </Label>
                 </div>
               ))}
-            </fieldset>
+            </RadioGroup>
           </div>
         )
       case "number":
         return (
           <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <input
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Input
               id={field.id}
               type="number"
-              className="w-full p-2 border rounded-md"
               required={field.required}
               value={formValues[field.id] || ""}
               onChange={(e) => handleInputChange(field.id, e.target.value)}
               disabled={isLoading}
+              placeholder={`Enter ${field.label.toLowerCase()}`}
+              className="w-full"
             />
           </div>
         )
@@ -490,7 +595,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         const isSelected = selectedPaymentItems[field.id] || false
 
         return (
-          <div className="mb-4 p-3 border rounded-md bg-gray-50">
+          <div className="mb-4 p-4 border rounded-md bg-gray-50 hover:bg-gray-100 transition-colors">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center">
                 {isOptional && (
@@ -498,14 +603,14 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                     id={`payment-${field.id}`}
                     checked={isSelected}
                     onCheckedChange={(checked) => handlePaymentItemToggle(field.id, checked === true)}
-                    className="mr-2"
+                    className="mr-3"
                     disabled={isLoading}
                   />
                 )}
-                <label htmlFor={`payment-${field.id}`} className="font-medium">
+                <Label htmlFor={`payment-${field.id}`} className="font-medium cursor-pointer">
                   {field.label}
-                  {!isOptional && "*"}
-                </label>
+                  {!isOptional && <span className="text-red-500 ml-1">*</span>}
+                </Label>
               </div>
               <div className="text-right font-medium">
                 {paymentField.currency} {paymentField.amount.toLocaleString()}
@@ -513,11 +618,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
             </div>
 
             {paymentField.description && (
-              <p className="text-sm text-muted-foreground mt-1">{paymentField.description}</p>
+              <p className="text-sm text-muted-foreground mt-1 ml-7">{paymentField.description}</p>
             )}
 
             {paymentField.itemType && (
-              <div className="mt-1">
+              <div className="mt-2 ml-7">
                 <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded-full">
                   {paymentField.itemType.charAt(0).toUpperCase() + paymentField.itemType.slice(1)}
                 </span>
@@ -531,11 +636,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 w-full max-w-md sm:max-w-lg md:max-w-xl">
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle className="text-xl sm:text-2xl">{formName}</CardTitle>
-          <CardDescription>Event Code: {code}</CardDescription>
+    <div className="container mx-auto py-6 sm:py-8 px-4 w-full max-w-md sm:max-w-lg md:max-w-xl">
+      <Card className="w-full shadow-sm">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-xl sm:text-2xl text-center">{formName}</CardTitle>
+          <CardDescription className="text-center">Event Code: {code}</CardDescription>
         </CardHeader>
         <CardContent>
           <ShareFormLink code={code} />
@@ -546,15 +651,15 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
             ))}
 
             {hasPaymentFields && totalPayment > 0 && (
-              <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-md">
-                <h3 className="font-medium text-blue-800 mb-2">Payment Summary</h3>
-                <div className="bg-white p-3 rounded-md">
+              <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-md">
+                <h3 className="font-medium text-blue-800 mb-3">Payment Summary</h3>
+                <div className="bg-white p-4 rounded-md">
                   {formFields
                     .filter((field) => field.type === "payment" && selectedPaymentItems[field.id])
                     .map((field, index) => {
                       const paymentField = field as PaymentField
                       return (
-                        <div key={index} className="flex justify-between mb-1">
+                        <div key={index} className="flex justify-between mb-2">
                           <span className="text-sm">{field.label}</span>
                           <span>
                             {paymentField.currency} {paymentField.amount.toLocaleString()}
@@ -562,11 +667,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                         </div>
                       )
                     })}
-                  <div className="flex justify-between mb-1">
+                  <div className="flex justify-between mb-2">
                     <span className="text-sm">Platform Fee (2%):</span>
                     <span>₦{platformFee.toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between font-medium border-t border-blue-100 pt-1 mt-1">
+                  <div className="flex justify-between font-medium border-t border-blue-100 pt-2 mt-2">
                     <span>Total:</span>
                     <span>₦{grandTotal.toLocaleString()}</span>
                   </div>
@@ -574,7 +679,12 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               </div>
             )}
 
-            <LoadingButton type="submit" className="w-full" loadingId="form-submit" loadingText="Submitting...">
+            <LoadingButton
+              type="submit"
+              className="w-full h-12 text-lg mt-6"
+              loadingId="form-submit"
+              loadingText="Submitting..."
+            >
               Submit Registration
             </LoadingButton>
           </form>

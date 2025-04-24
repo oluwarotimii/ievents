@@ -1,5 +1,7 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
+
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
@@ -21,13 +23,16 @@ import {
   RefreshCw,
   AlertTriangle,
   Mail,
+  MoreVertical,
+  Search,
 } from "lucide-react"
 import { format } from "date-fns"
 import { Badge } from "@/components/ui/badge"
 import { getUserForms, deleteForm } from "../actions/form-actions"
 import { logoutUser, getCurrentUserSubscriptionInfo } from "../actions/auth-actions"
 import { useRouter } from "next/navigation"
-import { useLoading } from "@/components/loading-context"
+import { useLoading } from "@/contexts/loading-context"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface FormData {
   id: number
@@ -173,17 +178,17 @@ export default function DashboardPage() {
     subscriptionInfo?.formLimit !== null && subscriptionInfo?.formCount >= subscriptionInfo?.formLimit
 
   return (
-    <div className="container mx-auto py-8">
+    <div className="container mx-auto py-4 sm:py-8 px-4">
       <Card className="mb-6">
         <CardHeader>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
             <div>
-              <CardTitle>
+              <CardTitle className="text-xl sm:text-2xl">
                 {greeting}, {username || "User"}!
               </CardTitle>
               <CardDescription>Total Forms: {forms.length}</CardDescription>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex flex-wrap gap-2">
               <LoadingButton
                 variant="outline"
                 onClick={loadDashboardData}
@@ -191,13 +196,20 @@ export default function DashboardPage() {
                 title="Refresh dashboard"
                 loadingId="refresh-dashboard"
                 loadingText="Refreshing..."
+                size="sm"
               >
                 <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
               </LoadingButton>
-              <LoadingButton asChild loadingId="upgrade-plan" loadingText="Loading...">
+              <LoadingButton asChild loadingId="upgrade-plan" loadingText="Loading..." size="sm">
                 <Link href="/pricing">Upgrade Plan</Link>
               </LoadingButton>
-              <LoadingButton variant="outline" onClick={handleLogout} loadingId="logout" loadingText="Logging out...">
+              <LoadingButton
+                variant="outline"
+                onClick={handleLogout}
+                loadingId="logout"
+                loadingText="Logging out..."
+                size="sm"
+              >
                 <LogOut className="h-4 w-4 mr-2" />
                 Logout
               </LoadingButton>
@@ -206,7 +218,7 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           {subscriptionInfo && (
-            <div className="flex justify-between items-center mb-4 p-3 bg-muted rounded-md">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 p-3 bg-muted rounded-md">
               <div>
                 <p className="text-sm font-medium">
                   Current Plan:{" "}
@@ -224,7 +236,13 @@ export default function DashboardPage() {
                   </p>
                 )}
               </div>
-              <LoadingButton variant="outline" asChild loadingId="manage-subscription" loadingText="Loading...">
+              <LoadingButton
+                variant="outline"
+                asChild
+                loadingId="manage-subscription"
+                loadingText="Loading..."
+                size="sm"
+              >
                 <Link href="/subscription">
                   {subscriptionInfo.plan === "FREE" ? "Upgrade Plan" : "Manage Subscription"}
                 </Link>
@@ -232,17 +250,20 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <div className="flex justify-between items-center mb-4">
-            <Input
-              placeholder="Search forms..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="max-w-sm"
-              disabled={isLoading}
-            />
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search forms..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8"
+                disabled={isLoading}
+              />
+            </div>
             {/* Only show the Create Form button if user hasn't reached the limit */}
             {!hasReachedLimit && (
-              <LoadingButton asChild loadingId="create-form" loadingText="Loading...">
+              <LoadingButton asChild loadingId="create-form" loadingText="Loading..." className="w-full sm:w-auto">
                 <Link href="/create">
                   <Plus className="h-4 w-4 mr-2" />
                   Create New Form
@@ -276,131 +297,240 @@ export default function DashboardPage() {
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Event Code</TableHead>
-                    <TableHead>Form Name</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Responses</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredForms.map((form) => (
-                    <TableRow key={form.id}>
-                      <TableCell className="font-mono">{form.code}</TableCell>
-                      <TableCell>{form.name}</TableCell>
-                      <TableCell>{format(new Date(form.createdAt), "MMM d, yyyy")}</TableCell>
-                      <TableCell>{form._count.responses}</TableCell>
-                      <TableCell>
-                        <Badge variant={form._count.responses > 0 ? "success" : "secondary"}>
-                          {form._count.responses > 0 ? "Active" : "No Responses"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end space-x-2">
-                          <LoadingButton
-                            variant="ghost"
-                            size="icon"
-                            asChild
-                            loadingId={`edit-${form.code}`}
-                            loadingText=""
-                          >
-                            <Link href={`/create/${form.code}`} title="Edit Form">
-                              <Edit className="h-4 w-4" />
-                            </Link>
-                          </LoadingButton>
-                          <LoadingButton
-                            variant="ghost"
-                            size="icon"
-                            asChild
-                            loadingId={`view-${form.code}`}
-                            loadingText=""
-                          >
-                            <Link href={`/view/${form.code}`} title="View Form">
-                              <Eye className="h-4 w-4" />
-                            </Link>
-                          </LoadingButton>
-                          <LoadingButton
-                            variant="ghost"
-                            size="icon"
-                            asChild
-                            loadingId={`responses-${form.code}`}
-                            loadingText=""
-                          >
-                            <Link href={`/responses/${form.code}`} title="View Responses">
-                              <ClipboardList className="h-4 w-4" />
-                            </Link>
-                          </LoadingButton>
-                          <LoadingButton
-                            variant="ghost"
-                            size="icon"
-                            asChild
-                            loadingId={`analytics-${form.code}`}
-                            loadingText=""
-                          >
-                            <Link href={`/analytics/${form.code}`} title="View Analytics">
-                              <BarChart3 className="h-4 w-4" />
-                            </Link>
-                          </LoadingButton>
-                          <LoadingButton
-                            variant="ghost"
-                            size="icon"
-                            asChild
-                            loadingId={`qr-${form.code}`}
-                            loadingText=""
-                          >
-                            <Link href={`/qr-codes/${form.code}`} title="QR Codes">
-                              <QrCode className="h-4 w-4" />
-                            </Link>
-                          </LoadingButton>
-                          <LoadingButton
-                            variant="ghost"
-                            size="icon"
-                            asChild
-                            loadingId={`checkin-${form.code}`}
-                            loadingText=""
-                          >
-                            <Link href={`/manual-check-in/${form.code}`} title="Manual Check-In">
-                              <UserCheck className="h-4 w-4" />
-                            </Link>
-                          </LoadingButton>
-                          <LoadingButton
-                            variant="ghost"
-                            size="icon"
-                            asChild
-                            loadingId={`email-${form.code}`}
-                            loadingText=""
-                          >
-                            <Link href={`/email-manager/${form.code}`} title="Email Manager">
-                              <Mail className="h-4 w-4" />
-                            </Link>
-                          </LoadingButton>
-                          <LoadingButton
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteForm(form.code)}
-                            disabled={deletingForm === form.code}
-                            title="Delete Form"
-                            loadingId={`delete-${form.code}`}
-                            loadingText=""
-                          >
-                            {deletingForm === form.code ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                          </LoadingButton>
+            <>
+              {/* Mobile view - Card layout */}
+              <div className="block md:hidden space-y-4">
+                {filteredForms.map((form) => (
+                  <Card key={form.id} className="overflow-hidden relative">
+                    {/* Make the entire card clickable to view the form */}
+                    <Link
+                      href={`/view/${form.code}`}
+                      className="absolute inset-0 z-10"
+                      aria-label={`View ${form.name}`}
+                    >
+                      <span className="sr-only">View form</span>
+                    </Link>
+
+                    <CardHeader className="pb-2">
+                      <div className="flex justify-between items-start">
+                        <div className="z-20 pointer-events-none">
+                          <CardTitle className="text-lg">{form.name}</CardTitle>
+                          <CardDescription className="flex items-center mt-1">
+                            Code: <span className="font-mono font-medium ml-1">{form.code}</span>
+                          </CardDescription>
                         </div>
-                      </TableCell>
+                        <div className="z-20 pointer-events-auto">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreVertical className="h-4 w-4" />
+                                <span className="sr-only">More options</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link href={`/view/${form.code}`} className="cursor-pointer">
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  View Form
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href={`/create/${form.code}`} className="cursor-pointer">
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit Form
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href={`/responses/${form.code}`} className="cursor-pointer">
+                                  <ClipboardList className="h-4 w-4 mr-2" />
+                                  View Responses
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href={`/analytics/${form.code}`} className="cursor-pointer">
+                                  <BarChart3 className="h-4 w-4 mr-2" />
+                                  Analytics
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href={`/qr-codes/${form.code}`} className="cursor-pointer">
+                                  <QrCode className="h-4 w-4 mr-2" />
+                                  QR Codes
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href={`/manual-check-in/${form.code}`} className="cursor-pointer">
+                                  <UserCheck className="h-4 w-4 mr-2" />
+                                  Check-In
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href={`/email-manager/${form.code}`} className="cursor-pointer">
+                                  <Mail className="h-4 w-4 mr-2" />
+                                  Email
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleDeleteForm(form.code)}
+                                disabled={deletingForm === form.code}
+                                className="text-destructive focus:text-destructive cursor-pointer"
+                              >
+                                {deletingForm === form.code ? (
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                )}
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pb-2 pt-0">
+                      <div className="flex justify-between items-center">
+                        <p className="text-sm text-muted-foreground z-20 pointer-events-none">
+                          Created: {format(new Date(form.createdAt), "MMM d, yyyy")}
+                        </p>
+                        <Badge
+                          variant={form._count.responses > 0 ? "success" : "secondary"}
+                          className="z-20 pointer-events-none"
+                        >
+                          {form._count.responses > 0 ? `${form._count.responses} Responses` : "No Responses"}
+                        </Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Desktop view - Table layout */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Event Code</TableHead>
+                      <TableHead>Form Name</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Responses</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredForms.map((form) => (
+                      <TableRow key={form.id}>
+                        <TableCell className="font-mono">{form.code}</TableCell>
+                        <TableCell>{form.name}</TableCell>
+                        <TableCell>{format(new Date(form.createdAt), "MMM d, yyyy")}</TableCell>
+                        <TableCell>{form._count.responses}</TableCell>
+                        <TableCell>
+                          <Badge variant={form._count.responses > 0 ? "success" : "secondary"}>
+                            {form._count.responses > 0 ? "Active" : "No Responses"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end space-x-2">
+                            <LoadingButton
+                              variant="ghost"
+                              size="icon"
+                              asChild
+                              loadingId={`edit-${form.code}`}
+                              loadingText=""
+                            >
+                              <Link href={`/create/${form.code}`} title="Edit Form">
+                                <Edit className="h-4 w-4" />
+                              </Link>
+                            </LoadingButton>
+                            <LoadingButton
+                              variant="ghost"
+                              size="icon"
+                              asChild
+                              loadingId={`view-${form.code}`}
+                              loadingText=""
+                            >
+                              <Link href={`/view/${form.code}`} title="View Form">
+                                <Eye className="h-4 w-4" />
+                              </Link>
+                            </LoadingButton>
+                            <LoadingButton
+                              variant="ghost"
+                              size="icon"
+                              asChild
+                              loadingId={`responses-${form.code}`}
+                              loadingText=""
+                            >
+                              <Link href={`/responses/${form.code}`} title="View Responses">
+                                <ClipboardList className="h-4 w-4" />
+                              </Link>
+                            </LoadingButton>
+                            <LoadingButton
+                              variant="ghost"
+                              size="icon"
+                              asChild
+                              loadingId={`analytics-${form.code}`}
+                              loadingText=""
+                            >
+                              <Link href={`/analytics/${form.code}`} title="View Analytics">
+                                <BarChart3 className="h-4 w-4" />
+                              </Link>
+                            </LoadingButton>
+                            <LoadingButton
+                              variant="ghost"
+                              size="icon"
+                              asChild
+                              loadingId={`qr-${form.code}`}
+                              loadingText=""
+                            >
+                              <Link href={`/qr-codes/${form.code}`} title="QR Codes">
+                                <QrCode className="h-4 w-4" />
+                              </Link>
+                            </LoadingButton>
+                            <LoadingButton
+                              variant="ghost"
+                              size="icon"
+                              asChild
+                              loadingId={`checkin-${form.code}`}
+                              loadingText=""
+                            >
+                              <Link href={`/manual-check-in/${form.code}`} title="Manual Check-In">
+                                <UserCheck className="h-4 w-4" />
+                              </Link>
+                            </LoadingButton>
+                            <LoadingButton
+                              variant="ghost"
+                              size="icon"
+                              asChild
+                              loadingId={`email-${form.code}`}
+                              loadingText=""
+                            >
+                              <Link href={`/email-manager/${form.code}`} title="Email Manager">
+                                <Mail className="h-4 w-4" />
+                              </Link>
+                            </LoadingButton>
+                            <LoadingButton
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteForm(form.code)}
+                              disabled={deletingForm === form.code}
+                              title="Delete Form"
+                              loadingId={`delete-${form.code}`}
+                              loadingText=""
+                            >
+                              {deletingForm === form.code ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </LoadingButton>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
         <CardFooter>

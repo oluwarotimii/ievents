@@ -9,6 +9,7 @@ import {
   initializeTransaction,
   verifyTransaction,
   generateTransactionReference,
+  testPaystackConnection,
 } from "@/lib/paystack"
 
 // Save payment settings
@@ -27,6 +28,15 @@ export async function savePaymentSettings(formData: FormData) {
       return {
         success: false,
         message: "All fields are required",
+      }
+    }
+
+    // Test Paystack connection
+    const connectionTest = await testPaystackConnection()
+    if (!connectionTest.success) {
+      return {
+        success: false,
+        message: `Paystack connection failed: ${connectionTest.message}`,
       }
     }
 
@@ -62,7 +72,10 @@ export async function savePaymentSettings(formData: FormData) {
         console.error("Error creating Paystack subaccount:", error)
         return {
           success: false,
-          message: "Failed to create Paystack subaccount. Please try again.",
+          message:
+            error instanceof Error
+              ? `Failed to create Paystack subaccount: ${error.message}`
+              : "Failed to create Paystack subaccount. Please try again.",
         }
       }
     }
@@ -102,7 +115,10 @@ export async function savePaymentSettings(formData: FormData) {
     console.error("Error saving payment settings:", error)
     return {
       success: false,
-      message: "An error occurred while saving payment settings",
+      message:
+        error instanceof Error
+          ? `An error occurred: ${error.message}`
+          : "An error occurred while saving payment settings",
     }
   }
 }
@@ -124,7 +140,8 @@ export async function getPaymentSettings() {
     console.error("Error getting payment settings:", error)
     return {
       success: false,
-      message: "Failed to get payment settings",
+      message:
+        error instanceof Error ? `Failed to get payment settings: ${error.message}` : "Failed to get payment settings",
     }
   }
 }
@@ -137,7 +154,7 @@ export async function getBanks() {
     if (!banksResponse.status) {
       return {
         success: false,
-        message: "Failed to fetch banks",
+        message: `Failed to fetch banks: ${banksResponse.message || "Unknown error"}`,
       }
     }
 
@@ -149,7 +166,7 @@ export async function getBanks() {
     console.error("Error fetching banks:", error)
     return {
       success: false,
-      message: "Failed to fetch banks",
+      message: error instanceof Error ? `Failed to fetch banks: ${error.message}` : "Failed to fetch banks",
     }
   }
 }
@@ -213,7 +230,10 @@ export async function enableFormPayments(
     console.error("Error enabling form payments:", error)
     return {
       success: false,
-      message: "Failed to enable payments for this form",
+      message:
+        error instanceof Error
+          ? `Failed to enable payments: ${error.message}`
+          : "Failed to enable payments for this form",
     }
   }
 }
@@ -256,7 +276,10 @@ export async function disableFormPayments(formCode: string) {
     console.error("Error disabling form payments:", error)
     return {
       success: false,
-      message: "Failed to disable payments for this form",
+      message:
+        error instanceof Error
+          ? `Failed to disable payments: ${error.message}`
+          : "Failed to disable payments for this form",
     }
   }
 }
@@ -339,18 +362,45 @@ export async function initializeFormPayment(formCode: string, email: string, nam
       transactionId: transaction.id,
       baseAmount,
       platformFee,
+      formName: form.name,
+      customerName: name,
+      customerEmail: email,
     }
 
-    const paystackResponse = await initializeTransaction(
-      email,
-      totalAmount,
-      reference,
-      callbackUrl,
-      metadata,
-      form.user.paymentSettings.paystackSubaccountCode,
-    )
+    try {
+      const paystackResponse = await initializeTransaction(
+        email,
+        totalAmount,
+        reference,
+        callbackUrl,
+        metadata,
+        form.user.paymentSettings.paystackSubaccountCode,
+      )
 
-    if (!paystackResponse.status) {
+      if (!paystackResponse.status) {
+        // Update transaction status to failed
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: "FAILED",
+          },
+        })
+
+        return {
+          success: false,
+          message: `Failed to initialize payment: ${paystackResponse.message || "Unknown error"}`,
+        }
+      }
+
+      // Log successful payment initialization
+      console.log(`Payment initialized: ${reference} for form ${formCode}, amount: ${totalAmount}`)
+
+      return {
+        success: true,
+        paymentUrl: paystackResponse.data.authorization_url,
+        reference,
+      }
+    } catch (error) {
       // Update transaction status to failed
       await prisma.transaction.update({
         where: { id: transaction.id },
@@ -359,22 +409,14 @@ export async function initializeFormPayment(formCode: string, email: string, nam
         },
       })
 
-      return {
-        success: false,
-        message: "Failed to initialize payment",
-      }
-    }
-
-    return {
-      success: true,
-      paymentUrl: paystackResponse.data.authorization_url,
-      reference,
+      throw error
     }
   } catch (error) {
     console.error("Error initializing form payment:", error)
     return {
       success: false,
-      message: "Failed to initialize payment",
+      message:
+        error instanceof Error ? `Failed to initialize payment: ${error.message}` : "Failed to initialize payment",
     }
   }
 }
@@ -410,11 +452,60 @@ export async function verifyFormPayment(reference: string) {
       }
     }
 
-    // Verify with Paystack
-    const paystackResponse = await verifyTransaction(reference)
+    try {
+      // Verify with Paystack
+      const paystackResponse = await verifyTransaction(reference)
 
-    if (!paystackResponse.status || paystackResponse.data.status !== "success") {
-      // Update transaction status to failed
+      if (!paystackResponse.status || paystackResponse.data.status !== "success") {
+        // Update transaction status to failed
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: "FAILED",
+          },
+        })
+
+        return {
+          success: false,
+          message: `Payment verification failed: ${paystackResponse.message || "Transaction was not successful"}`,
+        }
+      }
+
+      // Update transaction status to completed
+      const updatedTransaction = await prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: "COMPLETED",
+          paymentDate: new Date(),
+        },
+        include: {
+          response: {
+            include: {
+              form: true,
+            },
+          },
+        },
+      })
+
+      // Update response payment status
+      await prisma.response.update({
+        where: { id: transaction.responseId },
+        data: {
+          paymentStatus: "PAID",
+          paymentReference: reference,
+        },
+      })
+
+      revalidatePath(`/transactions`)
+      revalidatePath(`/responses/${transaction.formCode}`)
+
+      return {
+        success: true,
+        message: "Payment verified successfully",
+        transaction: updatedTransaction,
+      }
+    } catch (error) {
+      // Update transaction status to failed on verification error
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: {
@@ -422,41 +513,13 @@ export async function verifyFormPayment(reference: string) {
         },
       })
 
-      return {
-        success: false,
-        message: "Payment verification failed",
-      }
-    }
-
-    // Update transaction status to completed
-    const updatedTransaction = await prisma.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        status: "COMPLETED",
-        paymentDate: new Date(),
-      },
-      include: {
-        response: {
-          include: {
-            form: true,
-          },
-        },
-      },
-    })
-
-    revalidatePath(`/transactions`)
-    revalidatePath(`/responses/${transaction.formCode}`)
-
-    return {
-      success: true,
-      message: "Payment verified successfully",
-      transaction: updatedTransaction,
+      throw error
     }
   } catch (error) {
     console.error("Error verifying form payment:", error)
     return {
       success: false,
-      message: "Failed to verify payment",
+      message: error instanceof Error ? `Failed to verify payment: ${error.message}` : "Failed to verify payment",
     }
   }
 }
@@ -511,7 +574,7 @@ export async function getUserTransactions() {
     console.error("Error getting user transactions:", error)
     return {
       success: false,
-      message: "Failed to get transactions",
+      message: error instanceof Error ? `Failed to get transactions: ${error.message}` : "Failed to get transactions",
     }
   }
 }
@@ -545,8 +608,24 @@ export async function getTransactionByReference(reference: string) {
     console.error("Error getting transaction:", error)
     return {
       success: false,
-      message: "Failed to get transaction",
+      message: error instanceof Error ? `Failed to get transaction: ${error.message}` : "Failed to get transaction",
     }
   }
 }
 
+// Test Paystack connection
+export async function testPaystackIntegration() {
+  try {
+    const result = await testPaystackConnection()
+    return result
+  } catch (error) {
+    console.error("Error testing Paystack integration:", error)
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? `Failed to test Paystack integration: ${error.message}`
+          : "Failed to test Paystack integration",
+    }
+  }
+}
