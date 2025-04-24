@@ -312,10 +312,48 @@ export async function initializeFormPayment(formCode: string, email: string, nam
       }
     }
 
-    if (!form.collectsPayments || !form.paymentAmount) {
+    // Find the response to get payment fields
+    const response = await prisma.response.findUnique({
+      where: { id: responseId },
+      include: {
+        data: true,
+      },
+    })
+
+    if (!response) {
       return {
         success: false,
-        message: "This form does not collect payments",
+        message: "Response not found",
+      }
+    }
+
+    // Calculate total from payment fields
+    let paymentFieldsTotal = 0
+    response.data.forEach((data) => {
+      try {
+        // Check if this is a payment field data
+        if (data.value && data.value.startsWith("{") && data.value.includes("amount")) {
+          const paymentData = JSON.parse(data.value)
+          if (paymentData.amount) {
+            paymentFieldsTotal += Number.parseFloat(paymentData.amount)
+          }
+        }
+      } catch (e) {
+        // Skip if not valid JSON
+      }
+    })
+
+    // Add form-level payment amount if enabled
+    const formPaymentAmount = form.collectsPayments && form.paymentAmount ? form.paymentAmount : 0
+
+    // Total base amount is sum of both payment types
+    const baseAmount = formPaymentAmount + paymentFieldsTotal
+
+    // If no payment is required, return error
+    if (baseAmount <= 0) {
+      return {
+        success: false,
+        message: "No payment amount specified",
       }
     }
 
@@ -331,7 +369,6 @@ export async function initializeFormPayment(formCode: string, email: string, nam
     const reference = generateTransactionReference()
 
     // Calculate platform fee (2% capped at ₦200)
-    const baseAmount = form.paymentAmount
     const platformFee = calculatePlatformFee(baseAmount)
     const totalAmount = baseAmount + platformFee
 

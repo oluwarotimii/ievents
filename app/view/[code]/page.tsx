@@ -12,7 +12,7 @@ import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
 import { CheckCircle2, Loader2, CreditCard } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useLoading } from "@/components/loading-context"
+import { useLoading } from "@/contexts/loading-context"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -38,6 +38,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   const { toast } = useToast()
   const { isLoading, startLoading, stopLoading } = useLoading()
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
+  const [formLevelPayment, setFormLevelPayment] = useState<number>(0)
+  const [isLoadingFormData, setIsLoadingFormData] = useState<boolean>(false)
 
   useEffect(() => {
     loadForm()
@@ -178,10 +180,17 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       setSubmittedData(submissionData)
       setResponseId(result.responseId)
 
-      // If there are selected payment items, proceed to payment
-      const totalPayment = calculateTotalPayment()
-      if (totalPayment > 0) {
-        // Instead of immediately redirecting to payment, show a payment confirmation step
+      // Calculate total from payment fields
+      const totalPaymentFieldsAmount = calculateTotalPayment()
+
+      // Get form-level payment info
+      const formResponse = await getFormByCode(code)
+      const hasFormLevelPayment =
+        formResponse && formResponse.collectsPayments && formResponse.paymentAmount && formResponse.paymentAmount > 0
+
+      // If there are selected payment items OR form has a payment amount, proceed to payment
+      if (totalPaymentFieldsAmount > 0 || hasFormLevelPayment) {
+        // Show payment confirmation step
         setShowPaymentConfirmation(true)
         stopLoading("form-submit")
       } else {
@@ -200,6 +209,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     }
   }
 
+  // Update the handlePayment function to include the form payment
   const handlePayment = async (responseId: number, totalAmount: number) => {
     startLoading("payment-process")
 
@@ -255,45 +265,46 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     }
   }
 
-  const getFirstName = (data: Record<string, any>): string => {
-    // Try to find a field that might contain the first name
-    for (const field of formFields) {
-      const fieldId = field.id
-      const value = data[fieldId]
-
-      // Check if the field label contains "name" and has a value
-      if (field.label.toLowerCase().includes("name") && typeof value === "string" && value.trim() !== "") {
-        // If it's "Full Name", try to extract first name
-        if (field.label.toLowerCase().includes("full")) {
-          const nameParts = value.trim().split(" ")
-          return nameParts[0] || value
-        }
-        return value
-      }
-    }
-
-    // Fallback to "there" if no name field found
-    return "there"
-  }
-
-  if (loading) {
-    return (
-      <div className="container flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin mb-4" />
-        <p>Loading form...</p>
-      </div>
-    )
-  }
-
-  if (!formExists) {
-    return null // Will redirect in useEffect
-  }
+  // Update the payment confirmation screen to include form-level payment
+  // This part comes after the handlePayment function
 
   // Payment confirmation screen
   if (showPaymentConfirmation && responseId) {
-    const totalPayment = calculateTotalPayment()
-    const platformFee = calculatePlatformFee(totalPayment)
-    const grandTotal = totalPayment + platformFee
+    // Effect to load form data to get payment amount
+    useEffect(() => {
+      const loadFormPaymentData = async () => {
+        setIsLoadingFormData(true)
+        try {
+          const formData = await getFormByCode(code)
+          if (formData && formData.collectsPayments && formData.paymentAmount) {
+            setFormLevelPayment(formData.paymentAmount)
+          }
+        } catch (error) {
+          console.error("Error loading form payment data:", error)
+        } finally {
+          setIsLoadingFormData(false)
+        }
+      }
+
+      loadFormPaymentData()
+    }, [code])
+
+    if (isLoadingFormData) {
+      return (
+        <div className="container mx-auto py-6 sm:py-8 px-4 w-full max-w-md">
+          <Card className="w-full shadow-lg">
+            <CardContent className="flex items-center justify-center p-8">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <p className="ml-2">Loading payment information...</p>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+
+    const totalPaymentFieldsAmount = calculateTotalPayment()
+    const platformFee = calculatePlatformFee(totalPaymentFieldsAmount + formLevelPayment)
+    const grandTotal = totalPaymentFieldsAmount + formLevelPayment + platformFee
 
     return (
       <div className="container mx-auto py-6 sm:py-8 px-4 w-full max-w-md">
@@ -308,6 +319,13 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
             <div className="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-md">
               <h3 className="font-medium text-blue-800 mb-3">Payment Summary</h3>
               <div className="bg-white p-4 rounded-md">
+                {formLevelPayment > 0 && (
+                  <div className="flex justify-between mb-2">
+                    <span className="text-sm">Registration Fee</span>
+                    <span>₦{formLevelPayment.toLocaleString()}</span>
+                  </div>
+                )}
+
                 {formFields
                   .filter((field) => field.type === "payment" && selectedPaymentItems[field.id])
                   .map((field, index) => {
@@ -346,7 +364,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
 
               <LoadingButton
                 className="w-full h-12 text-lg"
-                onClick={() => handlePayment(responseId, totalPayment)}
+                onClick={() => handlePayment(responseId, totalPaymentFieldsAmount + formLevelPayment)}
                 loadingId="payment-process"
                 loadingText="Processing payment..."
               >
@@ -371,10 +389,60 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     )
   }
 
+  // Update the success screen to include form-level payment details
+  // This comes after the showPaymentConfirmation section
+
   // If submission was successful
   if (submissionSuccess) {
+    const getFirstName = (data: Record<string, any>): string => {
+      for (const key in data) {
+        if (key.toLowerCase().includes("name")) {
+          const name = data[key]
+          if (typeof name === "string") {
+            return name.split(" ")[0]
+          }
+        }
+      }
+      return "Guest"
+    }
     const firstName = getFirstName(submittedData)
-    const totalPayment = calculateTotalPayment()
+
+    // Effect to load form data to get payment amount
+    useEffect(() => {
+      const loadFormPaymentData = async () => {
+        setIsLoadingFormData(true)
+        try {
+          const formData = await getFormByCode(code)
+          if (formData && formData.collectsPayments && formData.paymentAmount) {
+            setFormLevelPayment(formData.paymentAmount)
+          }
+        } catch (error) {
+          console.error("Error loading form payment data:", error)
+        } finally {
+          setIsLoadingFormData(false)
+        }
+      }
+
+      loadFormPaymentData()
+    }, [code])
+
+    if (isLoadingFormData) {
+      return (
+        <div className="container mx-auto py-8 px-4 max-w-md">
+          <Card>
+            <CardContent className="flex items-center justify-center p-8">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <p className="ml-2">Loading registration details...</p>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+
+    const totalPaymentFieldsAmount = calculateTotalPayment()
+    const totalAmount = totalPaymentFieldsAmount + formLevelPayment
+    const platformFee = calculatePlatformFee(totalAmount)
+    const grandTotal = totalAmount + platformFee
 
     return (
       <div className="container mx-auto py-8 px-4 max-w-md">
@@ -390,7 +458,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
             <h2 className="text-2xl font-bold text-center mb-2">Thank You, {firstName}!</h2>
             <p className="text-center text-muted-foreground mb-4">Your registration has been successfully submitted.</p>
 
-            {totalPayment > 0 && responseId && (
+            {totalAmount > 0 && responseId && (
               <div className="w-full mt-4">
                 <Card className="bg-blue-50 border-blue-100">
                   <CardContent className="pt-6">
@@ -399,23 +467,33 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                       Please complete your payment to confirm your registration.
                     </p>
                     <div className="bg-white p-3 rounded-md mb-4">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Total Amount:</span>
-                        <span>₦{totalPayment.toLocaleString()}</span>
-                      </div>
+                      {formLevelPayment > 0 && (
+                        <div className="flex justify-between mb-1">
+                          <span className="text-sm">Registration Fee:</span>
+                          <span>₦{formLevelPayment.toLocaleString()}</span>
+                        </div>
+                      )}
+
+                      {totalPaymentFieldsAmount > 0 && (
+                        <div className="flex justify-between mb-1">
+                          <span className="text-sm">Additional Items:</span>
+                          <span>₦{totalPaymentFieldsAmount.toLocaleString()}</span>
+                        </div>
+                      )}
+
                       <div className="flex justify-between mb-1">
                         <span className="text-sm">Platform Fee (2%):</span>
-                        <span>₦{calculatePlatformFee(totalPayment).toLocaleString()}</span>
+                        <span>₦{platformFee.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between font-medium border-t border-blue-100 pt-1 mt-1">
                         <span>Total:</span>
-                        <span>₦{(totalPayment + calculatePlatformFee(totalPayment)).toLocaleString()}</span>
+                        <span>₦{grandTotal.toLocaleString()}</span>
                       </div>
                     </div>
                     <div className="space-y-3">
                       <LoadingButton
                         className="w-full"
-                        onClick={() => handlePayment(responseId, totalPayment)}
+                        onClick={() => handlePayment(responseId, totalAmount)}
                         loadingId="payment-process"
                         loadingText="Processing payment..."
                       >
