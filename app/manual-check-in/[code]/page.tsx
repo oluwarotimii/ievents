@@ -13,7 +13,6 @@ import { ArrowLeft, CheckCircle2, Search, UserCheck, Loader2, RefreshCw } from "
 import { format } from "date-fns"
 import QuickCheckInCard from "@/components/quick-check-in-card"
 import { getFormByCode, getFormResponses, checkInAttendee } from "@/app/actions/form-actions"
-import ManualCheckInLoading from "./loading"
 
 interface FormResponse {
   id: string
@@ -73,6 +72,7 @@ export default function ManualCheckInPage({ params }: { params: { code: string }
 
       // Load responses from the database
       const formResponses = await getFormResponses(code)
+      console.log("Form responses:", formResponses)
       setResponses(formResponses || [])
     } catch (error) {
       console.error("Error loading data:", error)
@@ -116,6 +116,9 @@ export default function ManualCheckInPage({ params }: { params: { code: string }
   const getAttendeeName = (response: FormResponse): string => {
     // Look for name field in response data
     const data = response.data
+    console.log("Response data for name extraction:", data)
+
+    // First try to find fields with "name" in the key
     for (const key in data) {
       const value = data[key]
       if (typeof value === "string") {
@@ -126,6 +129,16 @@ export default function ManualCheckInPage({ params }: { params: { code: string }
         }
       }
     }
+
+    // If no name field found, try to find any text field with a value that looks like a name
+    for (const key in data) {
+      const value = data[key]
+      if (typeof value === "string" && value.length > 0 && !value.includes("@") && !value.match(/^\d+$/)) {
+        // This might be a name if it's not an email or just numbers
+        return value
+      }
+    }
+
     return "Unknown Attendee"
   }
 
@@ -133,6 +146,8 @@ export default function ManualCheckInPage({ params }: { params: { code: string }
   const getAttendeeEmail = (response: FormResponse): string => {
     // Look for email field in response data
     const data = response.data
+
+    // First check for fields with "email" in the key
     for (const key in data) {
       const value = data[key]
       if (typeof value === "string" && value.includes("@")) {
@@ -142,6 +157,15 @@ export default function ManualCheckInPage({ params }: { params: { code: string }
         }
       }
     }
+
+    // If no email field found, look for any value that looks like an email
+    for (const key in data) {
+      const value = data[key]
+      if (typeof value === "string" && value.includes("@") && value.includes(".")) {
+        return value
+      }
+    }
+
     return "No email"
   }
 
@@ -157,15 +181,16 @@ export default function ManualCheckInPage({ params }: { params: { code: string }
 
   if (loading) {
     return (
-      <><ManualCheckInLoading /><div className="container flex flex-col items-center justify-center min-h-screen">
-
+      <div className="container flex flex-col items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin mb-4" />
+        <p>Loading check-in page...</p>
         <Button variant="outline" className="mt-4" asChild>
           <Link href="/dashboard">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Dashboard
           </Link>
         </Button>
-      </div></>
+      </div>
     )
   }
 
@@ -301,4 +326,3 @@ export default function ManualCheckInPage({ params }: { params: { code: string }
     </div>
   )
 }
-

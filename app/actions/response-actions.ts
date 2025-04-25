@@ -1,3 +1,5 @@
+"use server"
+
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { canReceiveResponse } from "@/lib/subscription"
@@ -7,8 +9,12 @@ import { canReceiveResponse } from "@/lib/subscription"
 // Submit form response
 export async function submitFormResponse(code: string, formData: Record<string, any>) {
   try {
+    console.log("submitFormResponse called with code:", code)
+    console.log("Form data:", formData)
+
     // Validate the code format
     if (!/^\d{4}$/.test(code)) {
+      console.error("Invalid event code format:", code)
       return {
         success: false,
         message: "Invalid event code format",
@@ -21,15 +27,19 @@ export async function submitFormResponse(code: string, formData: Record<string, 
     })
 
     if (!form) {
+      console.error("Form not found with code:", code)
       return {
         success: false,
         message: "Form not found",
       }
     }
 
+    console.log("Form found:", form.id, form.name)
+
     // Check if form can receive more responses based on subscription
     const canReceive = await canReceiveResponse(form.id)
     if (!canReceive) {
+      console.error("Form has reached maximum responses limit")
       return {
         success: false,
         message:
@@ -50,6 +60,7 @@ export async function submitFormResponse(code: string, formData: Record<string, 
       },
     })
 
+    console.log("Response created successfully:", response.id)
     revalidatePath(`/responses/${code}`)
 
     return {
@@ -65,4 +76,3 @@ export async function submitFormResponse(code: string, formData: Record<string, 
     }
   }
 }
-
