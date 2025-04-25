@@ -18,21 +18,34 @@ interface FormPreviewProps {
 export default function FormPreview({ formName, fields, onClose }: FormPreviewProps) {
   // Calculate total of all required payment fields
   const calculateTotalPayment = () => {
-    return fields
-      .filter((field) => field.type === "payment" && !(field as PaymentField).isOptional)
-      .reduce((total, field) => {
-        // Ensure amount is a number with a default value of 0
-        const amount = typeof (field as PaymentField).amount === "number" ? (field as PaymentField).amount : 0
-        return total + amount
-      }, 0)
+    try {
+      return fields
+        .filter((field) => field.type === "payment" && !(field as PaymentField).isOptional)
+        .reduce((total, field) => {
+          // Ensure amount is a number with a default value of 0
+          const amount =
+            typeof (field as PaymentField).amount === "number"
+              ? (field as PaymentField).amount
+              : Number.parseFloat(String((field as PaymentField).amount || 0)) || 0
+          return total + amount
+        }, 0)
+    } catch (error) {
+      console.error("Error calculating total payment:", error)
+      return 0 // Return 0 if there's any error in calculation
+    }
   }
 
   // Calculate platform fee (2% capped at ₦200)
   const calculatePlatformFee = (amount: number): number => {
-    // Ensure amount is a number
-    const safeAmount = typeof amount === "number" ? amount : 0
-    const fee = safeAmount * 0.02
-    return Math.min(fee, 200) // Cap at ₦200
+    try {
+      // Ensure amount is a number
+      const safeAmount = typeof amount === "number" ? amount : Number.parseFloat(String(amount)) || 0
+      const fee = safeAmount * 0.02
+      return Math.min(fee, 200) // Cap at ₦200
+    } catch (error) {
+      console.error("Error calculating platform fee:", error)
+      return 0 // Return 0 if there's any error in calculation
+    }
   }
 
   const totalRequiredPayment = calculateTotalPayment()

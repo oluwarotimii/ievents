@@ -32,7 +32,9 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
 
     const verifyPayment = async () => {
       try {
+        console.log(`Verifying payment with reference: ${reference}`)
         const result = await verifyFormPayment(reference)
+        console.log("Payment verification result:", result)
 
         setSuccess(result.success)
         setMessage(result.message)
@@ -49,18 +51,22 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
         } else {
           toast({
             title: "Payment Failed",
-            description: result.message,
+            description: result.message || "Your payment could not be processed at this time.",
             variant: "destructive",
           })
         }
       } catch (error) {
         console.error("Error verifying payment:", error)
         setSuccess(false)
-        setMessage("An error occurred while verifying your payment")
+        setMessage(
+          error instanceof Error
+            ? `Verification error: ${error.message}`
+            : "An error occurred while verifying your payment",
+        )
 
         toast({
           title: "Verification Error",
-          description: "Failed to verify payment. Please contact support.",
+          description: "We encountered an issue while verifying your payment. Please contact support for assistance.",
           variant: "destructive",
         })
       } finally {
@@ -108,8 +114,29 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
           </CardHeader>
           <CardContent className="text-center py-6">
             <p className="mb-6 text-muted-foreground">
-              Your payment could not be processed. You can try again or contact support for assistance.
+              {searchParams.get("reference") ? (
+                <>
+                  Your payment with reference <span className="font-mono">{searchParams.get("reference")}</span> could
+                  not be processed.
+                </>
+              ) : (
+                "Your payment could not be processed."
+              )}{" "}
+              You can try again or contact support for assistance.
             </p>
+
+            {/* Show support contact info or reference for troubleshooting */}
+            <div className="bg-muted p-4 rounded-md mb-6 text-sm">
+              <p>If this issue persists, please contact support with the following information:</p>
+              <p className="mt-2">
+                Form Code: <span className="font-mono">{formCode}</span>
+              </p>
+              {searchParams.get("reference") && (
+                <p>
+                  Payment Reference: <span className="font-mono">{searchParams.get("reference")}</span>
+                </p>
+              )}
+            </div>
           </CardContent>
           <CardFooter className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button asChild className="w-full sm:w-auto">

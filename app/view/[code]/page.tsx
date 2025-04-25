@@ -11,7 +11,7 @@ import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
 import { CheckCircle2, CreditCard, Loader2 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useLoading } from "@/components/loading-context"
+import { useLoading } from "@/contexts/loading-context"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -143,11 +143,15 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   const platformFee = calculatePlatformFee(totalAmount)
   const grandTotal = totalAmount + platformFee
 
+  // Add proper error handling to the form submission process
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     // Prevent double submission
-    if (submitting) return
+    if (submitting) {
+      console.log("Form submission prevented - already submitting")
+      return
+    }
 
     setSubmitting(true)
     startLoading("form-submit")
@@ -201,6 +205,20 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       console.log("Form submission result:", result)
 
       if (!result.success) {
+        // Check for specific error types
+        if (result.message && result.message.includes("email has already been registered")) {
+          toast({
+            title: "Duplicate Registration",
+            description: "This email has already been registered for this event.",
+            variant: "destructive",
+          })
+        } else {
+          toast({
+            title: "Submission Failed",
+            description: result.message || "Failed to submit form. Please try again.",
+            variant: "destructive",
+          })
+        }
         throw new Error(result.message || "Failed to submit form")
       }
 
@@ -218,11 +236,14 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       }
     } catch (error) {
       console.error("Error submitting form:", error)
-      toast({
-        title: "Submission Failed",
-        description: error instanceof Error ? error.message : "Failed to submit your registration. Please try again.",
-        variant: "destructive",
-      })
+      // Don't show duplicate error toast again if we've already shown one above
+      if (!(error instanceof Error && error.message.includes("already been registered"))) {
+        toast({
+          title: "Submission Failed",
+          description: error instanceof Error ? error.message : "Failed to submit your registration. Please try again.",
+          variant: "destructive",
+        })
+      }
     } finally {
       stopLoading("form-submit")
       setSubmitting(false)
@@ -231,6 +252,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
 
   // Update the handlePayment function to include the form payment
   const handlePayment = async (responseId: number, totalAmount: number) => {
+    if (isLoading) {
+      console.log("Payment process already in progress, preventing duplicate calls")
+      return // Prevent multiple calls
+    }
+
     startLoading("payment-process")
 
     try {
@@ -252,11 +278,24 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         throw new Error("Email is required for payment")
       }
 
+      if (!name) {
+        // Use email as fallback for name if not found
+        name = email.split("@")[0]
+      }
+
+      console.log("Initializing payment with email:", email, "and name:", name)
+
       // Initialize payment
       const paymentResult = await initializeFormPayment(code, email, name, responseId)
 
+      console.log("Payment initialization result:", paymentResult)
+
       if (!paymentResult.success) {
         throw new Error(paymentResult.message || "Failed to initialize payment")
+      }
+
+      if (!paymentResult.paymentUrl) {
+        throw new Error("No payment URL received from payment processor")
       }
 
       // Show loading message before redirect
@@ -281,6 +320,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       // Show success screen anyway, they can try payment again later
       setShowPaymentConfirmation(false)
       setSubmissionSuccess(true)
+    } finally {
       stopLoading("payment-process")
     }
   }
