@@ -11,7 +11,7 @@ import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
 import { CheckCircle2, CreditCard, Loader2 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useLoading } from "@/components/loading-context"
+import { useLoading } from "@/contexts/loading-context"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -304,11 +304,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         description: "Please wait while we redirect you to the payment page...",
       })
 
-      // Short delay before redirect for better UX
-      setTimeout(() => {
-        // Redirect to payment page
-        window.location.href = paymentResult.paymentUrl
-      }, 1000)
+      // Redirect to payment page - using window.location.href for a full page redirect
+      window.location.href = paymentResult.paymentUrl
     } catch (error) {
       console.error("Error processing payment:", error)
       toast({
@@ -317,10 +314,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         variant: "destructive",
       })
 
-      // Show success screen anyway, they can try payment again later
-      setShowPaymentConfirmation(false)
-      setSubmissionSuccess(true)
-    } finally {
+      // Don't show success screen, keep them on the payment confirmation screen
       stopLoading("payment-process")
     }
   }
@@ -340,7 +334,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     )
   }
 
-  // Payment confirmation screen
+  // Remove the "Pay Later" button from the payment confirmation screen
+  // Modify the payment confirmation screen section
   if (showPaymentConfirmation && responseId) {
     return (
       <div className="container mx-auto py-6 sm:py-8 px-4 w-full max-w-md">
@@ -418,16 +413,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                 )}
               </Button>
 
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  setShowPaymentConfirmation(false)
-                  setSubmissionSuccess(true)
-                }}
-              >
-                Pay Later
-              </Button>
+              {/* Removed the "Pay Later" button */}
             </div>
           </CardContent>
         </Card>
@@ -435,7 +421,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     )
   }
 
-  // If submission was successful
+  // Also modify the success screen to remove the payment option if they somehow get there without paying
+  // Replace the payment section in the success screen with a message that payment is required
   if (submissionSuccess) {
     const getFirstName = (data: Record<string, any>): string => {
       for (const key in data) {
@@ -463,63 +450,6 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
             </div>
             <h2 className="text-2xl font-bold text-center mb-2">Thank You, {firstName}!</h2>
             <p className="text-center text-muted-foreground mb-4">Your registration has been successfully submitted.</p>
-
-            {totalAmount > 0 && responseId && (
-              <div className="w-full mt-4">
-                <Card className="bg-blue-50 border-blue-100">
-                  <CardContent className="pt-6">
-                    <h3 className="font-medium text-blue-800 mb-2">Payment Required</h3>
-                    <p className="text-sm text-blue-700 mb-4">
-                      Please complete your payment to confirm your registration.
-                    </p>
-                    <div className="bg-white p-3 rounded-md mb-4">
-                      {formLevelPayment > 0 && (
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm">Registration Fee:</span>
-                          <span>₦{formLevelPayment.toLocaleString()}</span>
-                        </div>
-                      )}
-
-                      {totalPaymentFieldsAmount > 0 && (
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm">Additional Items:</span>
-                          <span>₦{totalPaymentFieldsAmount.toLocaleString()}</span>
-                        </div>
-                      )}
-
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Platform Fee (2%):</span>
-                        <span>₦{platformFee.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between font-medium border-t border-blue-100 pt-1 mt-1">
-                        <span>Total:</span>
-                        <span>₦{grandTotal.toLocaleString()}</span>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <Button
-                        className="w-full"
-                        onClick={() => handlePayment(responseId, totalAmount)}
-                        disabled={isLoading}
-                      >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Processing...
-                          </>
-                        ) : (
-                          <>
-                            <CreditCard className="h-4 w-4 mr-2" />
-                            Pay Now
-                          </>
-                        )}
-                      </Button>
-                      <p className="text-xs text-center text-muted-foreground">Secure payment powered by Paystack</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
 
             <p className="text-center text-muted-foreground mt-4">
               You will receive a confirmation email shortly with all the event details.
