@@ -333,6 +333,78 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     window.location.href = paymentUrl
   }
 
+  const handlePayment = async (responseId: number, totalAmount: number) => {
+    // Prevent multiple clicks
+    if (isLoading) {
+      console.log("Payment process already in progress, preventing duplicate calls")
+      return
+    }
+
+    // Start loading state
+    startLoading("payment-process")
+
+    try {
+      // Get email and name from form values
+      let email = ""
+      let name = ""
+
+      for (const field of formFields) {
+        const value = formValues[field.id]
+        if (field.type === "email" && value) {
+          email = value
+        }
+        if (field.label.toLowerCase().includes("name") && value) {
+          name = value
+        }
+      }
+
+      if (!email) {
+        throw new Error("Email is required for payment")
+      }
+
+      if (!name) {
+        // Use email as fallback for name if not found
+        name = email.split("@")[0]
+      }
+
+      console.log("Initializing payment with email:", email, "and name:", name)
+
+      // Initialize payment
+      const paymentResult = await initializeFormPayment(code, email, name, responseId)
+
+      console.log("Payment initialization result:", paymentResult)
+
+      if (!paymentResult.success) {
+        throw new Error(paymentResult.message || "Failed to initialize payment")
+      }
+
+      if (!paymentResult.paymentUrl) {
+        throw new Error("No payment URL received from payment processor")
+      }
+
+      // Show loading message before redirect
+      toast({
+        title: "Redirecting to Payment",
+        description: "Please wait while we redirect you to the payment page...",
+      })
+
+      console.log("Redirecting to payment URL:", paymentResult.paymentUrl)
+
+      // Force immediate redirect to payment page using window.location.href
+      window.location.href = paymentResult.paymentUrl
+    } catch (error) {
+      console.error("Error processing payment:", error)
+      toast({
+        title: "Payment Error",
+        description: error instanceof Error ? error.message : "Failed to process payment. Please try again.",
+        variant: "destructive",
+      })
+      // Keep them on the payment confirmation screen
+    } finally {
+      stopLoading("payment-process")
+    }
+  }
+
   // Show loading indicator while the form is loading
   if (loading) {
     return (

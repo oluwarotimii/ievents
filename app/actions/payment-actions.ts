@@ -439,10 +439,21 @@ export async function initializeFormPayment(formCode: string, email: string, nam
         paymentMethod: "card",
         customerEmail: email,
         customerName: name,
-        formCode: form.code,
-        formName: form.name,
+        paymentGateway: "paystack", // Add the default payment gateway
       },
     })
+
+    // Store form code in metadata for reference
+    const metadata = {
+      formCode: form.code,
+      formName: form.name,
+      responseId,
+      transactionId: transaction.id,
+      baseAmount,
+      platformFee,
+      customerName: name,
+      customerEmail: email,
+    }
 
     console.log(`Created transaction record: ${transaction.id}`)
 
@@ -457,7 +468,7 @@ export async function initializeFormPayment(formCode: string, email: string, nam
 
     // Initialize transaction with Paystack
     const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/payment/callback/${formCode}`
-    const metadata = {
+    const paystackMetadata = {
       formCode: form.code,
       responseId,
       transactionId: transaction.id,
@@ -475,7 +486,7 @@ export async function initializeFormPayment(formCode: string, email: string, nam
         totalAmount,
         reference,
         callbackUrl,
-        metadata,
+        paystackMetadata,
         form.user.paymentSettings.paystackSubaccountCode,
       )
 
@@ -627,7 +638,8 @@ export async function verifyFormPayment(reference: string) {
       })
 
       revalidatePath(`/transactions`)
-      revalidatePath(`/responses/${transaction.formCode}`)
+      // Get form code from the response instead
+      revalidatePath(`/responses/${transaction.response.form.code}`)
 
       console.log(`Payment verification successful for ${reference}`)
 
