@@ -9,7 +9,7 @@ import type { FormField, PaymentField } from "@/event-form-builder/types"
 import ShareFormLink from "@/components/share-form-link"
 import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
-import { CheckCircle2, CreditCard, Loader2 } from "lucide-react"
+import { AlertCircle, CheckCircle2, CreditCard, ExternalLink, Loader2 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useLoading } from "@/components/loading-context"
 import { Label } from "@/components/ui/label"
@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export default function ViewFormPage({ params }: { params: { code: string } }) {
   // Unwrap the params object using React.use()
@@ -40,6 +41,9 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   const [formLevelPayment, setFormLevelPayment] = useState<number>(0)
   const [isLoadingFormData, setIsLoadingFormData] = useState<boolean>(false)
   const [submitting, setSubmitting] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [paymentUrl, setPaymentUrl] = useState<string | null>(null)
+  const [processingPayment, setProcessingPayment] = useState(false)
 
   useEffect(() => {
     loadForm()
@@ -230,6 +234,9 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       if (totalAmount > 0) {
         // Show payment confirmation step
         setShowPaymentConfirmation(true)
+
+        // Pre-initialize payment to get the URL ready
+        initializePayment(result.responseId)
       } else {
         // Show success screen if no payment needed
         setSubmissionSuccess(true)
@@ -250,19 +257,10 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     }
   }
 
-  // Fix the handlePayment function to ensure it only triggers when the button is clicked
-  // and properly redirects to the payment page
-
-  // Replace the handlePayment function with this improved version:
-  const handlePayment = async (responseId: number, totalAmount: number) => {
-    // Prevent multiple clicks
-    if (isLoading) {
-      console.log("Payment process already in progress, preventing duplicate calls")
-      return
-    }
-
-    // Start loading state
-    startLoading("payment-process")
+  // New function to initialize payment and get URL
+  const initializePayment = async (respId: number) => {
+    setProcessingPayment(true)
+    setPaymentError(null)
 
     try {
       // Get email and name from form values
@@ -291,7 +289,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       console.log("Initializing payment with email:", email, "and name:", name)
 
       // Initialize payment
-      const paymentResult = await initializeFormPayment(code, email, name, responseId)
+      const paymentResult = await initializeFormPayment(code, email, name, respId)
 
       console.log("Payment initialization result:", paymentResult)
 
@@ -303,27 +301,36 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         throw new Error("No payment URL received from payment processor")
       }
 
-      // Show loading message before redirect
-      toast({
-        title: "Redirecting to Payment",
-        description: "Please wait while we redirect you to the payment page...",
-      })
-
-      console.log("Redirecting to payment URL:", paymentResult.paymentUrl)
-
-      // Force immediate redirect to payment page
-      window.location.assign(paymentResult.paymentUrl)
+      // Store the payment URL
+      setPaymentUrl(paymentResult.paymentUrl)
+      console.log("Payment URL set:", paymentResult.paymentUrl)
     } catch (error) {
-      console.error("Error processing payment:", error)
+      console.error("Error initializing payment:", error)
+      setPaymentError(error instanceof Error ? error.message : "Failed to initialize payment")
+    } finally {
+      setProcessingPayment(false)
+    }
+  }
+
+  // Function to handle redirect to payment page
+  const handlePaymentRedirect = () => {
+    if (!paymentUrl) {
       toast({
         title: "Payment Error",
-        description: error instanceof Error ? error.message : "Failed to process payment. Please try again.",
+        description: "No payment URL available. Please try again.",
         variant: "destructive",
       })
-      // Keep them on the payment confirmation screen
-    } finally {
-      stopLoading("payment-process")
+      return
     }
+
+    // Show loading message before redirect
+    toast({
+      title: "Redirecting to Payment",
+      description: "Please wait while we redirect you to the payment page...",
+    })
+
+    // Redirect to payment page
+    window.location.href = paymentUrl
   }
 
   // Show loading indicator while the form is loading
@@ -341,8 +348,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     )
   }
 
-  // Remove the "Pay Later" button from the payment confirmation screen
-  // Modify the payment confirmation screen section
+  // Updated payment confirmation screen with better error handling and direct link
   if (showPaymentConfirmation && responseId) {
     return (
       <div className="container mx-auto py-6 sm:py-8 px-4 w-full max-w-md">
@@ -390,6 +396,14 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               </div>
             </div>
 
+            {paymentError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Payment Error</AlertTitle>
+                <AlertDescription>{paymentError}</AlertDescription>
+              </Alert>
+            )}
+
             <div className="space-y-4">
               <div className="p-4 bg-gray-50 rounded-md">
                 <h4 className="font-medium mb-2">Payment Information</h4>
@@ -402,26 +416,40 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                 </div>
               </div>
 
-              <Button
-                className="w-full h-12 text-lg"
-                onClick={() => handlePayment(responseId, totalAmount)}
-                disabled={isLoading}
-                type="button"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Processing payment...
-                  </>
-                ) : (
-                  <>
-                    <CreditCard className="h-5 w-5 mr-2" />
-                    Proceed to Payment
-                  </>
-                )}
-              </Button>
+              {/* Show different button states based on payment initialization */}
+              {processingPayment ? (
+                <Button className="w-full h-12 text-lg" disabled>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Preparing payment...
+                </Button>
+              ) : paymentUrl ? (
+                <Button className="w-full h-12 text-lg" onClick={handlePaymentRedirect} type="button">
+                  <CreditCard className="h-5 w-5 mr-2" />
+                  Proceed to Payment
+                </Button>
+              ) : (
+                <Button className="w-full h-12 text-lg" onClick={() => initializePayment(responseId)} type="button">
+                  <CreditCard className="h-5 w-5 mr-2" />
+                  Initialize Payment
+                </Button>
+              )}
 
-              {/* Removed the "Pay Later" button */}
+              {/* Direct link as fallback */}
+              {paymentUrl && (
+                <div className="text-center mt-4">
+                  <p className="text-sm text-muted-foreground mb-2">
+                    If the button doesn't work, you can also click the link below:
+                  </p>
+                  <a
+                    href={paymentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline inline-flex items-center"
+                  >
+                    Open Payment Page <ExternalLink className="ml-1 h-3 w-3" />
+                  </a>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
