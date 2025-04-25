@@ -9,7 +9,7 @@ import type { FormField, PaymentField } from "@/event-form-builder/types"
 import ShareFormLink from "@/components/share-form-link"
 import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
-import { CheckCircle2, CreditCard, Loader2 } from "lucide-react"
+import { CheckCircle2, CreditCard, Loader2 } from 'lucide-react'
 import { Checkbox } from "@/components/ui/checkbox"
 import { useLoading } from "@/components/loading-context"
 import { Label } from "@/components/ui/label"
@@ -250,15 +250,20 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     }
   }
 
-  // Update the handlePayment function to include the form payment
+  // Fix the handlePayment function to ensure it only triggers when the button is clicked
+  // and properly redirects to the payment page
+
+  // Replace the handlePayment function with this improved version:
   const handlePayment = async (responseId: number, totalAmount: number) => {
+    // Prevent multiple clicks
     if (isLoading) {
       console.log("Payment process already in progress, preventing duplicate calls")
-      return // Prevent multiple calls
+      return
     }
 
+    // Start loading state
     startLoading("payment-process")
-
+    
     try {
       // Get email and name from form values
       let email = ""
@@ -304,8 +309,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         description: "Please wait while we redirect you to the payment page...",
       })
 
-      // Redirect to payment page - using window.location.href for a full page redirect
-      window.location.href = paymentResult.paymentUrl
+      // Short delay before redirect for better UX
+      setTimeout(() => {
+        // Redirect to payment page - using window.location.href for a full page redirect
+        window.location.href = paymentResult.paymentUrl
+      }, 1000)
     } catch (error) {
       console.error("Error processing payment:", error)
       toast({
@@ -313,8 +321,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         description: error instanceof Error ? error.message : "Failed to process payment. Please try again.",
         variant: "destructive",
       })
-
-      // Don't show success screen, keep them on the payment confirmation screen
+      // Keep them on the payment confirmation screen
+    } finally {
       stopLoading("payment-process")
     }
   }
@@ -399,6 +407,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                 className="w-full h-12 text-lg"
                 onClick={() => handlePayment(responseId, totalAmount)}
                 disabled={isLoading}
+                type="button"
               >
                 {isLoading ? (
                   <>
