@@ -21,14 +21,17 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
     return fields
       .filter((field) => field.type === "payment" && !(field as PaymentField).isOptional)
       .reduce((total, field) => {
-        const amount = (field as PaymentField).amount || 0
+        // Ensure amount is a number with a default value of 0
+        const amount = typeof (field as PaymentField).amount === "number" ? (field as PaymentField).amount : 0
         return total + amount
       }, 0)
   }
 
   // Calculate platform fee (2% capped at ₦200)
   const calculatePlatformFee = (amount: number): number => {
-    const fee = amount * 0.02
+    // Ensure amount is a number
+    const safeAmount = typeof amount === "number" ? amount : 0
+    const fee = safeAmount * 0.02
     return Math.min(fee, 200) // Cap at ₦200
   }
 
@@ -122,7 +125,8 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
       case "payment":
         const paymentField = field as PaymentField
         const isOptional = paymentField.isOptional || false
-        const amount = paymentField.amount || 0
+        // Ensure amount is a number with a default value of 0
+        const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
         const currency = paymentField.currency || "NGN"
 
         return (
@@ -179,7 +183,8 @@ export default function FormPreview({ formName, fields, onClose }: FormPreviewPr
                     .filter((field) => field.type === "payment")
                     .map((field, index) => {
                       const paymentField = field as PaymentField
-                      const amount = paymentField.amount || 0
+                      // Ensure amount is a number with a default value of 0
+                      const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
                       const currency = paymentField.currency || "NGN"
                       return (
                         <div key={index} className="flex justify-between text-sm">

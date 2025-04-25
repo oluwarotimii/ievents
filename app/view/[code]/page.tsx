@@ -10,9 +10,9 @@ import type { FormField, PaymentField } from "@/event-form-builder/types"
 import ShareFormLink from "@/components/share-form-link"
 import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
-import { CheckCircle2, Loader2, CreditCard } from "lucide-react"
+import { CheckCircle2, CreditCard } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useLoading } from "@/components/loading-context"
+import { useLoading } from "@/contexts/loading-context"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -67,6 +67,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         setFormName(form.name || "Event Registration Form")
         setFormExists(true)
 
+        // Check if form has payment settings
+        if (form.collectsPayments && form.paymentAmount) {
+          setFormLevelPayment(form.paymentAmount)
+        }
+
         // Initialize selected payment items
         const paymentSelections: Record<string, boolean> = {}
         form.fields.forEach((field) => {
@@ -116,12 +121,18 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   const calculateTotalPayment = () => {
     return formFields
       .filter((field) => field.type === "payment" && selectedPaymentItems[field.id])
-      .reduce((total, field) => total + ((field as PaymentField).amount || 0), 0)
+      .reduce((total, field) => {
+        // Ensure amount is a number and has a default value of 0
+        const amount = typeof (field as PaymentField).amount === "number" ? (field as PaymentField).amount : 0
+        return total + amount
+      }, 0)
   }
 
   // Calculate platform fee (2% capped at ₦200)
   const calculatePlatformFee = (amount: number): number => {
-    const fee = amount * 0.02
+    // Ensure amount is a number
+    const safeAmount = typeof amount === "number" ? amount : 0
+    const fee = safeAmount * 0.02
     return Math.min(fee, 200) // Cap at ₦200
   }
 
@@ -156,8 +167,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         if (field.type === "payment" && selectedPaymentItems[field.id]) {
           const paymentField = field as PaymentField
           paymentData[field.id] = {
-            amount: paymentField.amount,
-            currency: paymentField.currency,
+            amount: paymentField.amount || 0,
+            currency: paymentField.currency || "NGN",
             itemType: paymentField.itemType || "registration",
             description: paymentField.description || field.label,
           }
@@ -183,13 +194,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       // Calculate total from payment fields
       const totalPaymentFieldsAmount = calculateTotalPayment()
 
-      // Get form-level payment info
-      const formResponse = await getFormByCode(code)
-      const hasFormLevelPayment =
-        formResponse && formResponse.collectsPayments && formResponse.paymentAmount && formResponse.paymentAmount > 0
-
       // If there are selected payment items OR form has a payment amount, proceed to payment
-      if (totalPaymentFieldsAmount > 0 || hasFormLevelPayment) {
+      if (totalPaymentFieldsAmount > 0 || formLevelPayment > 0) {
         // Show payment confirmation step
         setShowPaymentConfirmation(true)
         stopLoading("form-submit")
@@ -265,43 +271,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     }
   }
 
-  // Update the payment confirmation screen to include form-level payment
-  // This part comes after the handlePayment function
-
   // Payment confirmation screen
   if (showPaymentConfirmation && responseId) {
-    // Effect to load form data to get payment amount
-    useEffect(() => {
-      const loadFormPaymentData = async () => {
-        setIsLoadingFormData(true)
-        try {
-          const formData = await getFormByCode(code)
-          if (formData && formData.collectsPayments && formData.paymentAmount) {
-            setFormLevelPayment(formData.paymentAmount)
-          }
-        } catch (error) {
-          console.error("Error loading form payment data:", error)
-        } finally {
-          setIsLoadingFormData(false)
-        }
-      }
-
-      loadFormPaymentData()
-    }, [code])
-
-    if (isLoadingFormData) {
-      return (
-        <div className="container mx-auto py-6 sm:py-8 px-4 w-full max-w-md">
-          <Card className="w-full shadow-lg">
-            <CardContent className="flex items-center justify-center p-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
-              <p className="ml-2">Loading payment information...</p>
-            </CardContent>
-          </Card>
-        </div>
-      )
-    }
-
     const totalPaymentFieldsAmount = calculateTotalPayment()
     const platformFee = calculatePlatformFee(totalPaymentFieldsAmount + formLevelPayment)
     const grandTotal = totalPaymentFieldsAmount + formLevelPayment + platformFee
@@ -330,11 +301,13 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                   .filter((field) => field.type === "payment" && selectedPaymentItems[field.id])
                   .map((field, index) => {
                     const paymentField = field as PaymentField
+                    const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
+                    const currency = paymentField.currency || "NGN"
                     return (
                       <div key={index} className="flex justify-between mb-2">
                         <span className="text-sm">{field.label}</span>
                         <span>
-                          {paymentField.currency} {paymentField.amount.toLocaleString()}
+                          {currency} {amount.toLocaleString()}
                         </span>
                       </div>
                     )
@@ -389,9 +362,6 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     )
   }
 
-  // Update the success screen to include form-level payment details
-  // This comes after the showPaymentConfirmation section
-
   // If submission was successful
   if (submissionSuccess) {
     const getFirstName = (data: Record<string, any>): string => {
@@ -406,38 +376,6 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       return "Guest"
     }
     const firstName = getFirstName(submittedData)
-
-    // Effect to load form data to get payment amount
-    useEffect(() => {
-      const loadFormPaymentData = async () => {
-        setIsLoadingFormData(true)
-        try {
-          const formData = await getFormByCode(code)
-          if (formData && formData.collectsPayments && formData.paymentAmount) {
-            setFormLevelPayment(formData.paymentAmount)
-          }
-        } catch (error) {
-          console.error("Error loading form payment data:", error)
-        } finally {
-          setIsLoadingFormData(false)
-        }
-      }
-
-      loadFormPaymentData()
-    }, [code])
-
-    if (isLoadingFormData) {
-      return (
-        <div className="container mx-auto py-8 px-4 max-w-md">
-          <Card>
-            <CardContent className="flex items-center justify-center p-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
-              <p className="ml-2">Loading registration details...</p>
-            </CardContent>
-          </Card>
-        </div>
-      )
-    }
 
     const totalPaymentFieldsAmount = calculateTotalPayment()
     const totalAmount = totalPaymentFieldsAmount + formLevelPayment
@@ -671,6 +609,9 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         const paymentField = field as PaymentField
         const isOptional = paymentField.isOptional || false
         const isSelected = selectedPaymentItems[field.id] || false
+        // Ensure amount is a number with a default value of 0
+        const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
+        const currency = paymentField.currency || "NGN"
 
         return (
           <div className="mb-4 p-4 border rounded-md bg-gray-50 hover:bg-gray-100 transition-colors">
@@ -691,7 +632,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                 </Label>
               </div>
               <div className="text-right font-medium">
-                {paymentField.currency} {paymentField.amount.toLocaleString()}
+                {currency} {amount.toLocaleString()}
               </div>
             </div>
 
@@ -736,11 +677,13 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                     .filter((field) => field.type === "payment" && selectedPaymentItems[field.id])
                     .map((field, index) => {
                       const paymentField = field as PaymentField
+                      const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
+                      const currency = paymentField.currency || "NGN"
                       return (
                         <div key={index} className="flex justify-between mb-2">
                           <span className="text-sm">{field.label}</span>
                           <span>
-                            {paymentField.currency} {paymentField.amount.toLocaleString()}
+                            {currency} {amount.toLocaleString()}
                           </span>
                         </div>
                       )
