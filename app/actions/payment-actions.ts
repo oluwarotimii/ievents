@@ -500,6 +500,9 @@ export async function initializeFormPayment(formCode: string, email: string, nam
         `Payment initialized: ${reference} for form ${formCode}, amount: ${totalAmount}, URL: ${paystackResponse.data.authorization_url}`,
       )
 
+      // Add this debug log to ensure the URL is being returned properly
+      console.log("Returning payment URL to client:", paystackResponse.data.authorization_url)
+
       return {
         success: true,
         paymentUrl: paystackResponse.data.authorization_url,

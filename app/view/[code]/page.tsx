@@ -9,7 +9,7 @@ import type { FormField, PaymentField } from "@/event-form-builder/types"
 import ShareFormLink from "@/components/share-form-link"
 import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
-import { CheckCircle2, CreditCard, Loader2 } from 'lucide-react'
+import { CheckCircle2, CreditCard, Loader2 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useLoading } from "@/components/loading-context"
 import { Label } from "@/components/ui/label"
@@ -263,7 +263,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
 
     // Start loading state
     startLoading("payment-process")
-    
+
     try {
       // Get email and name from form values
       let email = ""
@@ -309,11 +309,10 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         description: "Please wait while we redirect you to the payment page...",
       })
 
-      // Short delay before redirect for better UX
-      setTimeout(() => {
-        // Redirect to payment page - using window.location.href for a full page redirect
-        window.location.href = paymentResult.paymentUrl
-      }, 1000)
+      console.log("Redirecting to payment URL:", paymentResult.paymentUrl)
+
+      // Force immediate redirect to payment page
+      window.location.assign(paymentResult.paymentUrl)
     } catch (error) {
       console.error("Error processing payment:", error)
       toast({
