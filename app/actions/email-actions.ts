@@ -1,10 +1,10 @@
 import { format } from "date-fns"
 import { render } from "@react-email/render"
-import prisma from "./prisma"
+import prisma from "@/lib/prisma"
 import RegistrationConfirmationEmail from "@/emails/registration-confirmation"
 import PaymentReceiptEmail from "@/emails/payment-receipt-email"
 import MassEmailTemplate from "@/emails/mass-email-template"
-import { getFullShortUrl, createShortUrl } from "./url-shortener"
+import { getFullShortUrl, createShortUrl } from "@/lib/url-shortener"
 
 /**
  * Send registration confirmation email
