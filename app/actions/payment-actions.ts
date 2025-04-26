@@ -641,13 +641,12 @@ export async function verifyFormPayment(reference: string) {
         }
       }
 
-      // Update transaction status to completed
+      // Update transaction status to completed - removed paymentDate field
       console.log(`Updating transaction ${reference} to COMPLETED`)
       const updatedTransaction = await prisma.transaction.update({
         where: { id: transaction.id },
         data: {
           status: "COMPLETED",
-          paymentDate: new Date(),
         },
         include: {
           response: {

@@ -1,41 +1,92 @@
-import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
+import { getSession } from "./lib/auth"
 
-// Add paths that should be accessible without authentication
+// Define public paths that don't require authentication
 const publicPaths = [
   "/",
   "/login",
-  "/register",
   "/forgot-password",
   "/reset-password",
   "/verify-email",
   "/view",
   "/check-in",
+  "/s",
+  "/unsubscribe",
+  "/payment/callback", // Add payment callback to public paths
+]
+
+// Define paths that require authentication
+const protectedPaths = [
+  "/dashboard",
+  "/create",
+  "/analytics",
+  "/responses",
+  "/manual-check-in",
+  "/qr-codes",
+  "/subscription",
+  "/payment-settings",
+  "/transactions",
+  "/email-manager",
   "/pricing",
-  "/api", // Allow API routes to be accessed
-  "/s", // Allow short URL redirects
-  "/payment/callback", // Allow payment callback routes without authentication
-  "/payment/receipt", // Allow payment receipt viewing without authentication
 ]
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Check if the path is for API routes
+  if (pathname.startsWith("/api")) {
+    // API routes are handled by their own authentication
+    return NextResponse.next()
+  }
+
+  // Check if the path is for static files or _next
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon") ||
+    pathname.includes(".") ||
+    pathname.startsWith("/images/")
+  ) {
+    return NextResponse.next()
+  }
+
+  // Check if the path is for payment callback - always public
+  if (pathname.startsWith("/payment/callback")) {
+    return NextResponse.next()
+  }
+
+  // Check if the path is for view, check-in, or s (short URLs) - always public
+  if (
+    pathname.startsWith("/view/") ||
+    pathname.startsWith("/check-in/") ||
+    pathname.startsWith("/s/") ||
+    pathname.startsWith("/unsubscribe/")
+  ) {
+    return NextResponse.next()
+  }
+
+  // Check if the path is for verify-email or reset-password - always public
+  if (pathname.startsWith("/verify-email/") || pathname.startsWith("/reset-password/")) {
+    return NextResponse.next()
+  }
+
   // Check if the path is public
   const isPublicPath = publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 
-  // Get the session cookie
-  const sessionCookie = request.cookies.get("session")?.value
+  // Check if the path is protected
+  const isProtectedPath = protectedPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 
-  // If the path is not public and there's no session cookie, redirect to login
-  if (!isPublicPath && !sessionCookie) {
+  // Get the session
+  const session = await getSession(request)
+
+  // If the path is protected and there's no session, redirect to login
+  if (isProtectedPath && !session) {
     const url = new URL("/login", request.url)
     url.searchParams.set("callbackUrl", encodeURI(request.url))
     return NextResponse.redirect(url)
   }
 
-  // If there's a session cookie and trying to access login, redirect to dashboard
-  if (sessionCookie && pathname === "/login") {
+  // If the path is login and there's a session, redirect to dashboard
+  if (pathname === "/login" && session) {
     return NextResponse.redirect(new URL("/dashboard", request.url))
   }
 

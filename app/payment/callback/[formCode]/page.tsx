@@ -2,245 +2,156 @@
 
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import Link from "next/link"
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { verifyFormPayment, getTransactionByReference } from "@/app/actions/payment-actions"
 import { Button } from "@/components/ui/button"
-import { useToast } from "@/hooks/use-toast"
-import { XCircle, Loader2, CheckCircle, ArrowLeft } from "lucide-react"
-import { verifyFormPayment } from "@/app/actions/payment-actions"
-import PaymentReceipt from "@/components/payment-receipt"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { CheckCircle, XCircle, Loader2 } from "lucide-react"
+import Link from "next/link"
 
 export default function PaymentCallbackPage({ params }: { params: { formCode: string } }) {
-  const [verifying, setVerifying] = useState(true)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const reference = searchParams.get("reference")
+  const [loading, setLoading] = useState(true)
   const [success, setSuccess] = useState(false)
   const [message, setMessage] = useState("")
   const [transaction, setTransaction] = useState<any>(null)
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const { toast } = useToast()
-  const formCode = params.formCode
-  const [formName, setFormName] = useState<string>("")
-  const [error, setError] = useState<string | null>(null)
+  const [formCode, setFormCode] = useState(params.formCode)
 
   useEffect(() => {
-    const reference = searchParams.get("reference")
+    async function verifyPayment() {
+      if (!reference) {
+        setLoading(false)
+        setSuccess(false)
+        setMessage("No payment reference found")
+        return
+      }
 
-    if (!reference) {
-      setVerifying(false)
-      setSuccess(false)
-      setMessage("Invalid payment reference")
-      return
-    }
-
-    // Add this debug log
-    console.log("Payment callback received with reference:", reference, "for form:", formCode)
-
-    const verifyPayment = async () => {
       try {
-        console.log(`Verifying payment with reference: ${reference}`)
+        console.log("Verifying payment with reference:", reference)
         const result = await verifyFormPayment(reference)
         console.log("Payment verification result:", result)
 
-        setSuccess(result.success)
-        setMessage(result.message)
-
-        if (result.transaction) {
-          setTransaction(result.transaction)
-          setFormName(result.transaction.response?.form?.name || "")
-        }
-
         if (result.success) {
-          toast({
-            title: "Payment Successful",
-            description: "Your payment has been processed successfully.",
-          })
+          setSuccess(true)
+          setMessage("Payment successful!")
+          setTransaction(result.transaction)
         } else {
-          toast({
-            title: "Payment Failed",
-            description: result.message || "Your payment could not be processed at this time.",
-            variant: "destructive",
-          })
+          setSuccess(false)
+          setMessage(result.message || "Payment verification failed")
+
+          // Try to get transaction details even if verification failed
+          const transactionResult = await getTransactionByReference(reference)
+          if (transactionResult.success) {
+            setTransaction(transactionResult.transaction)
+          }
         }
       } catch (error) {
         console.error("Error verifying payment:", error)
         setSuccess(false)
-        setError(error instanceof Error ? error.message : "Unknown error occurred")
-        setMessage(
-          error instanceof Error
-            ? `Verification error: ${error.message}`
-            : "An error occurred while verifying your payment",
-        )
-
-        toast({
-          title: "Verification Error",
-          description: "We encountered an issue while verifying your payment. Please contact support for assistance.",
-          variant: "destructive",
-        })
+        setMessage(error instanceof Error ? error.message : "An error occurred while verifying payment")
       } finally {
-        setVerifying(false)
+        setLoading(false)
       }
     }
 
     verifyPayment()
-  }, [searchParams, toast, formCode])
-
-  if (verifying) {
-    return (
-      <div className="container mx-auto py-8 px-4 flex items-center justify-center min-h-[80vh]">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-primary/10">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            </div>
-            <CardTitle className="text-2xl">Processing Payment</CardTitle>
-            <CardDescription>Please wait while we verify your payment...</CardDescription>
-          </CardHeader>
-          <CardContent className="text-center py-6">
-            <div className="flex flex-col items-center">
-              <div className="w-full max-w-xs bg-muted h-2 rounded-full overflow-hidden mb-4">
-                <div className="h-full bg-primary animate-pulse" style={{ width: "60%" }}></div>
-              </div>
-              <p className="text-sm text-muted-foreground">This may take a few moments</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="container mx-auto py-8 px-4 flex items-center justify-center min-h-[80vh]">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-red-100">
-              <XCircle className="h-6 w-6 text-red-500" />
-            </div>
-            <CardTitle className="text-2xl">Error Occurred</CardTitle>
-            <CardDescription>We encountered a problem processing your payment</CardDescription>
-          </CardHeader>
-          <CardContent className="text-center py-6">
-            <p className="mb-6 text-muted-foreground">{error}</p>
-            <div className="bg-muted p-4 rounded-md mb-6 text-sm">
-              <p>Please try again or contact support with the following information:</p>
-              <p className="mt-2">
-                Form Code: <span className="font-mono">{formCode}</span>
-              </p>
-              {searchParams.get("reference") && (
-                <p>
-                  Payment Reference: <span className="font-mono">{searchParams.get("reference")}</span>
-                </p>
-              )}
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button asChild className="w-full sm:w-auto">
-              <Link href={`/view/${formCode}`}>
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Return to Form
-              </Link>
-            </Button>
-            <Button variant="outline" asChild className="w-full sm:w-auto">
-              <Link href="/">Go to Home</Link>
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
-    )
-  }
-
-  if (!success) {
-    return (
-      <div className="container mx-auto py-8 px-4 flex items-center justify-center min-h-[80vh]">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-red-100">
-              <XCircle className="h-6 w-6 text-red-500" />
-            </div>
-            <CardTitle className="text-2xl">Payment Failed</CardTitle>
-            <CardDescription>{message}</CardDescription>
-          </CardHeader>
-          <CardContent className="text-center py-6">
-            <p className="mb-6 text-muted-foreground">
-              {searchParams.get("reference") ? (
-                <>
-                  Your payment with reference <span className="font-mono">{searchParams.get("reference")}</span> could
-                  not be processed.
-                </>
-              ) : (
-                "Your payment could not be processed."
-              )}{" "}
-              You can try again or contact support for assistance.
-            </p>
-
-            {/* Show support contact info or reference for troubleshooting */}
-            <div className="bg-muted p-4 rounded-md mb-6 text-sm">
-              <p>If this issue persists, please contact support with the following information:</p>
-              <p className="mt-2">
-                Form Code: <span className="font-mono">{formCode}</span>
-              </p>
-              {searchParams.get("reference") && (
-                <p>
-                  Payment Reference: <span className="font-mono">{searchParams.get("reference")}</span>
-                </p>
-              )}
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button asChild className="w-full sm:w-auto">
-              <Link href={`/view/${formCode}`}>
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Return to Form
-              </Link>
-            </Button>
-            <Button variant="outline" asChild className="w-full sm:w-auto">
-              <Link href="/">Go to Home</Link>
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
-    )
-  }
+  }, [reference])
 
   return (
-    <div className="container mx-auto py-8 px-4 flex flex-col items-center justify-center min-h-[80vh]">
-      <Card className="w-full max-w-md mb-6">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-green-100">
-            <CheckCircle className="h-6 w-6 text-green-500" />
-          </div>
-          <CardTitle className="text-2xl">Payment Successful!</CardTitle>
-          <CardDescription>
-            Your payment has been processed successfully and your registration is complete.
+    <div className="container max-w-md mx-auto py-8 px-4">
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle className="text-center">
+            {loading ? "Processing Payment" : success ? "Payment Successful" : "Payment Failed"}
+          </CardTitle>
+          <CardDescription className="text-center">
+            {loading ? "Please wait while we verify your payment..." : ""}
           </CardDescription>
         </CardHeader>
-        <CardContent className="text-center">
-          <div className="bg-green-50 p-4 rounded-md mb-4">
-            <p className="text-green-800">A receipt has been sent to your email. Please check your inbox.</p>
-          </div>
-          <p className="mb-4">
-            Thank you for registering for{" "}
-            <span className="font-semibold">{transaction?.response?.form?.name || formName}</span>. We look forward to
-            seeing you at the event!
-          </p>
+        <CardContent className="flex flex-col items-center justify-center space-y-4">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-8">
+              <Loader2 className="h-12 w-12 animate-spin text-primary" />
+              <p className="mt-4 text-sm text-muted-foreground">Verifying your payment...</p>
+            </div>
+          ) : success ? (
+            <div className="flex flex-col items-center justify-center py-4">
+              <CheckCircle className="h-16 w-16 text-green-500" />
+              <p className="mt-4 text-center">{message}</p>
+              {transaction && (
+                <div className="mt-6 w-full">
+                  <div className="rounded-lg bg-muted p-4">
+                    <h3 className="font-medium mb-2">Payment Details</h3>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Reference:</span>
+                        <span className="font-medium">{transaction.reference}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Amount:</span>
+                        <span className="font-medium">₦{transaction.amount.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Status:</span>
+                        <span className="font-medium capitalize">{transaction.status.toLowerCase()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Date:</span>
+                        <span className="font-medium">{new Date(transaction.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Event:</span>
+                        <span className="font-medium">{transaction.response.form.name}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-4">
+              <XCircle className="h-16 w-16 text-red-500" />
+              <p className="mt-4 text-center">{message}</p>
+              <p className="mt-2 text-sm text-muted-foreground text-center">
+                Your payment with reference {reference} could not be processed. You can try again or contact support for
+                assistance.
+              </p>
+              {transaction && (
+                <div className="mt-4 text-sm text-muted-foreground text-center">
+                  <p>If this issue persists, please contact support with the following information:</p>
+                  <p className="mt-2">
+                    <span className="font-medium">Form Code:</span> {formCode}
+                  </p>
+                  <p>
+                    <span className="font-medium">Payment Reference:</span> {reference}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
+        <CardFooter className="flex flex-col space-y-2">
+          {!loading && (
+            <>
+              {success ? (
+                <Button asChild className="w-full">
+                  <Link href={`/view/${formCode}`}>Return to Form</Link>
+                </Button>
+              ) : (
+                <>
+                  <Button asChild variant="outline" className="w-full">
+                    <Link href={`/view/${formCode}`}>Return to Form</Link>
+                  </Button>
+                  <Button asChild variant="secondary" className="w-full">
+                    <Link href="/">Go to Home</Link>
+                  </Button>
+                </>
+              )}
+            </>
+          )}
+        </CardFooter>
       </Card>
-
-      {transaction && <PaymentReceipt transaction={transaction} />}
-
-      <div className="mt-8 w-full max-w-md">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Button asChild className="w-full">
-            <Link href={`/view/${formCode}`}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Return to Event Page
-            </Link>
-          </Button>
-          <Button variant="outline" asChild className="w-full mt-3 sm:mt-0">
-            <Link href="/">Go to Home</Link>
-          </Button>
-        </div>
-      </div>
     </div>
   )
 }
