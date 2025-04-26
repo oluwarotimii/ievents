@@ -325,7 +325,7 @@ export async function initializeFormPayment(
       }
     }
 
-    // Find the form
+    // Find the form - no authentication required for this action
     const form = await prisma.form.findUnique({
       where: { code: formCode },
       include: {
@@ -447,6 +447,7 @@ export async function initializeFormPayment(
         customerEmail: email,
         customerName: name,
         paymentGateway: "paystack", // Add the default payment gateway
+        formName: form.name, // Store form name for easier reference
       },
     })
 
@@ -572,7 +573,7 @@ export async function initializeFormPayment(
   }
 }
 
-// Verify form payment
+// Verify form payment - no authentication required
 export async function verifyFormPayment(reference: string) {
   try {
     console.log(`Verifying form payment with reference: ${reference}`)
@@ -766,7 +767,7 @@ export async function getUserTransactions() {
   }
 }
 
-// Get transaction by reference
+// Get transaction by reference - no authentication required for public access
 export async function getTransactionByReference(reference: string) {
   try {
     const transaction = await prisma.transaction.findUnique({

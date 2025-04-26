@@ -20,6 +20,7 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
   const { toast } = useToast()
   const formCode = params.formCode
   const [formName, setFormName] = useState<string>("")
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const reference = searchParams.get("reference")
@@ -63,6 +64,7 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
       } catch (error) {
         console.error("Error verifying payment:", error)
         setSuccess(false)
+        setError(error instanceof Error ? error.message : "Unknown error occurred")
         setMessage(
           error instanceof Error
             ? `Verification error: ${error.message}`
@@ -84,7 +86,7 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
 
   if (verifying) {
     return (
-      <div className="container mx-auto py-8 px-4 flex items-center justify-center min-h-screen">
+      <div className="container mx-auto py-8 px-4 flex items-center justify-center min-h-[80vh]">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-primary/10">
@@ -106,9 +108,50 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
     )
   }
 
+  if (error) {
+    return (
+      <div className="container mx-auto py-8 px-4 flex items-center justify-center min-h-[80vh]">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-red-100">
+              <XCircle className="h-6 w-6 text-red-500" />
+            </div>
+            <CardTitle className="text-2xl">Error Occurred</CardTitle>
+            <CardDescription>We encountered a problem processing your payment</CardDescription>
+          </CardHeader>
+          <CardContent className="text-center py-6">
+            <p className="mb-6 text-muted-foreground">{error}</p>
+            <div className="bg-muted p-4 rounded-md mb-6 text-sm">
+              <p>Please try again or contact support with the following information:</p>
+              <p className="mt-2">
+                Form Code: <span className="font-mono">{formCode}</span>
+              </p>
+              {searchParams.get("reference") && (
+                <p>
+                  Payment Reference: <span className="font-mono">{searchParams.get("reference")}</span>
+                </p>
+              )}
+            </div>
+          </CardContent>
+          <CardFooter className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button asChild className="w-full sm:w-auto">
+              <Link href={`/view/${formCode}`}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Return to Form
+              </Link>
+            </Button>
+            <Button variant="outline" asChild className="w-full sm:w-auto">
+              <Link href="/">Go to Home</Link>
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
+  }
+
   if (!success) {
     return (
-      <div className="container mx-auto py-8 px-4 flex items-center justify-center min-h-screen">
+      <div className="container mx-auto py-8 px-4 flex items-center justify-center min-h-[80vh]">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-red-100">
@@ -160,7 +203,7 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 flex flex-col items-center justify-center min-h-screen">
+    <div className="container mx-auto py-8 px-4 flex flex-col items-center justify-center min-h-[80vh]">
       <Card className="w-full max-w-md mb-6">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-green-100">
