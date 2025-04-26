@@ -42,13 +42,10 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
 
         if (result.transaction) {
           setTransaction(result.transaction)
-          setFormName(result.transaction.response.form.name)
+          setFormName(result.transaction.response?.form?.name || "")
         }
 
         if (result.success) {
-          // Enable email sending in the verifyFormPayment function
-          // This will send a payment receipt email to the customer
-
           toast({
             title: "Payment Successful",
             description: "Your payment has been processed successfully.",
@@ -80,7 +77,7 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
     }
 
     verifyPayment()
-  }, [searchParams, toast])
+  }, [searchParams, toast, formCode])
 
   if (verifying) {
     return (
