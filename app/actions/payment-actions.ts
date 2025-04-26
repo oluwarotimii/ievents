@@ -447,7 +447,6 @@ export async function initializeFormPayment(
         customerEmail: email,
         customerName: name,
         paymentGateway: "paystack", // Add the default payment gateway
-        formName: form.name, // Store form name for easier reference
       },
     })
 
