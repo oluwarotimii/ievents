@@ -4,14 +4,10 @@ import { PrismaClient } from "@prisma/client"
 // exhausting your database connection limit.
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
-// Check if we're in a browser environment
-const isBrowser = typeof window !== "undefined"
+// Create a new PrismaClient instance
+export const prisma = globalForPrisma.prisma || new PrismaClient()
 
-// Only instantiate PrismaClient if we're on the server
-export const prisma = isBrowser
-  ? (null as unknown as PrismaClient) // Return null for browser
-  : globalForPrisma.prisma || new PrismaClient()
-
-if (process.env.NODE_ENV !== "production" && !isBrowser) globalForPrisma.prisma = prisma
+// If we're not in production, attach the client to the global object
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
 
 export default prisma

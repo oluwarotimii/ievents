@@ -333,78 +333,6 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
     window.location.href = paymentUrl
   }
 
-  const handlePayment = async (responseId: number, totalAmount: number) => {
-    // Prevent multiple clicks
-    if (isLoading) {
-      console.log("Payment process already in progress, preventing duplicate calls")
-      return
-    }
-
-    // Start loading state
-    startLoading("payment-process")
-
-    try {
-      // Get email and name from form values
-      let email = ""
-      let name = ""
-
-      for (const field of formFields) {
-        const value = formValues[field.id]
-        if (field.type === "email" && value) {
-          email = value
-        }
-        if (field.label.toLowerCase().includes("name") && value) {
-          name = value
-        }
-      }
-
-      if (!email) {
-        throw new Error("Email is required for payment")
-      }
-
-      if (!name) {
-        // Use email as fallback for name if not found
-        name = email.split("@")[0]
-      }
-
-      console.log("Initializing payment with email:", email, "and name:", name)
-
-      // Initialize payment
-      const paymentResult = await initializeFormPayment(code, email, name, responseId)
-
-      console.log("Payment initialization result:", paymentResult)
-
-      if (!paymentResult.success) {
-        throw new Error(paymentResult.message || "Failed to initialize payment")
-      }
-
-      if (!paymentResult.paymentUrl) {
-        throw new Error("No payment URL received from payment processor")
-      }
-
-      // Show loading message before redirect
-      toast({
-        title: "Redirecting to Payment",
-        description: "Please wait while we redirect you to the payment page...",
-      })
-
-      console.log("Redirecting to payment URL:", paymentResult.paymentUrl)
-
-      // Force immediate redirect to payment page using window.location.href
-      window.location.href = paymentResult.paymentUrl
-    } catch (error) {
-      console.error("Error processing payment:", error)
-      toast({
-        title: "Payment Error",
-        description: error instanceof Error ? error.message : "Failed to process payment. Please try again.",
-        variant: "destructive",
-      })
-      // Keep them on the payment confirmation screen
-    } finally {
-      stopLoading("payment-process")
-    }
-  }
-
   // Show loading indicator while the form is loading
   if (loading) {
     return (
@@ -432,11 +360,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-md">
+            <div className="payment-summary">
               <h3 className="font-medium text-blue-800 mb-3">Payment Summary</h3>
               <div className="bg-white p-4 rounded-md">
                 {formLevelPayment > 0 && (
-                  <div className="flex justify-between mb-2">
+                  <div className="payment-item">
                     <span className="text-sm">Registration Fee</span>
                     <span>₦{formLevelPayment.toLocaleString()}</span>
                   </div>
@@ -449,7 +377,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                     const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
                     const currency = paymentField.currency || "NGN"
                     return (
-                      <div key={index} className="flex justify-between mb-2">
+                      <div key={index} className="payment-item">
                         <span className="text-sm">{field.label}</span>
                         <span>
                           {currency} {amount.toLocaleString()}
@@ -457,11 +385,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                       </div>
                     )
                   })}
-                <div className="flex justify-between mb-2">
+                <div className="payment-item">
                   <span className="text-sm">Platform Fee (2%):</span>
                   <span>₦{platformFee.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between font-medium border-t border-blue-100 pt-2 mt-2">
+                <div className="payment-total">
                   <span>Total:</span>
                   <span>₦{grandTotal.toLocaleString()}</span>
                 </div>
@@ -563,7 +491,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               You will receive a confirmation email shortly with all the event details.
             </p>
           </CardContent>
-          <CardFooter className="flex flex-col sm:flex-row justify-center gap-4">
+          <CardFooter className="flex-responsive justify-center gap-4">
             <Button
               variant="outline"
               onClick={() => {
@@ -571,11 +499,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                 setFormValues({})
                 setResponseId(null)
               }}
-              className="w-full sm:w-auto"
+              className="btn-responsive"
             >
               Register Another Person
             </Button>
-            <Button asChild className="w-full sm:w-auto">
+            <Button asChild className="btn-responsive">
               <Link href="/">Return to Home</Link>
             </Button>
           </CardFooter>
@@ -594,7 +522,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       case "email":
       case "phone":
         return (
-          <div className="mb-4">
+          <div className="form-input-group">
             <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
               {field.required && <span className="text-red-500 ml-1">*</span>}
@@ -607,13 +535,13 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               onChange={(e) => handleInputChange(field.id, e.target.value)}
               disabled={isLoading || submitting}
               placeholder={`Enter ${field.label.toLowerCase()}`}
-              className="w-full"
+              className="form-control"
             />
           </div>
         )
       case "date":
         return (
-          <div className="mb-4">
+          <div className="form-input-group">
             <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
               {field.required && <span className="text-red-500 ml-1">*</span>}
@@ -625,13 +553,13 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               value={formValues[field.id] || ""}
               onChange={(e) => handleInputChange(field.id, e.target.value)}
               disabled={isLoading || submitting}
-              className="w-full"
+              className="form-control"
             />
           </div>
         )
       case "textarea":
         return (
-          <div className="mb-4">
+          <div className="form-input-group">
             <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
               {field.required && <span className="text-red-500 ml-1">*</span>}
@@ -643,13 +571,13 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               onChange={(e) => handleInputChange(field.id, e.target.value)}
               disabled={isLoading || submitting}
               placeholder={`Enter ${field.label.toLowerCase()}`}
-              className="w-full min-h-[100px]"
+              className="form-control min-h-[100px]"
             />
           </div>
         )
       case "select":
         return (
-          <div className="mb-4">
+          <div className="form-input-group">
             <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
               {field.required && <span className="text-red-500 ml-1">*</span>}
@@ -659,7 +587,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               onValueChange={(value) => handleInputChange(field.id, value)}
               disabled={isLoading || submitting}
             >
-              <SelectTrigger id={field.id} className="w-full">
+              <SelectTrigger id={field.id} className="form-control">
                 <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
               </SelectTrigger>
               <SelectContent>
@@ -674,7 +602,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         )
       case "radio":
         return (
-          <div className="mb-4">
+          <div className="form-input-group">
             <Label className="mb-1.5 block">
               {field.label}
               {field.required && <span className="text-red-500 ml-1">*</span>}
@@ -697,7 +625,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         )
       case "number":
         return (
-          <div className="mb-4">
+          <div className="form-input-group">
             <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
               {field.required && <span className="text-red-500 ml-1">*</span>}
@@ -710,7 +638,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               onChange={(e) => handleInputChange(field.id, e.target.value)}
               disabled={isLoading || submitting}
               placeholder={`Enter ${field.label.toLowerCase()}`}
-              className="w-full"
+              className="form-control"
             />
           </div>
         )
@@ -764,16 +692,16 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   }
 
   return (
-    <div className="container mx-auto py-6 sm:py-8 px-4 w-full max-w-md sm:max-w-lg md:max-w-xl">
+    <div className="container mx-auto py-6 sm:py-8 w-full responsive-card">
       <Card className="w-full shadow-sm">
         <CardHeader className="pb-4">
-          <CardTitle className="text-xl sm:text-2xl text-center">{formName}</CardTitle>
+          <CardTitle className="text-responsive-title text-center">{formName}</CardTitle>
           <CardDescription className="text-center">Event Code: {code}</CardDescription>
         </CardHeader>
         <CardContent>
           <ShareFormLink code={code} />
 
-          <form onSubmit={handleFormSubmit} className="mt-6 space-y-4">
+          <form onSubmit={handleFormSubmit} className="mt-6 form-layout">
             {/* Show form level payment if it exists */}
             {formLevelPayment > 0 && (
               <div className="p-4 border rounded-md bg-blue-50">
@@ -791,11 +719,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
 
             {/* Show payment summary if there are any payments */}
             {(hasPaymentFields || formLevelPayment > 0) && (
-              <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-md">
+              <div className="payment-summary">
                 <h3 className="font-medium text-blue-800 mb-3">Payment Summary</h3>
                 <div className="bg-white p-4 rounded-md">
                   {formLevelPayment > 0 && (
-                    <div className="flex justify-between mb-2">
+                    <div className="payment-item">
                       <span className="text-sm">Registration Fee</span>
                       <span>₦{formLevelPayment.toLocaleString()}</span>
                     </div>
@@ -808,7 +736,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                       const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
                       const currency = paymentField.currency || "NGN"
                       return (
-                        <div key={index} className="flex justify-between mb-2">
+                        <div key={index} className="payment-item">
                           <span className="text-sm">{field.label}</span>
                           <span>
                             {currency} {amount.toLocaleString()}
@@ -816,11 +744,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                         </div>
                       )
                     })}
-                  <div className="flex justify-between mb-2">
+                  <div className="payment-item">
                     <span className="text-sm">Platform Fee (2%):</span>
                     <span>₦{platformFee.toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between font-medium border-t border-blue-100 pt-2 mt-2">
+                  <div className="payment-total">
                     <span>Total:</span>
                     <span>₦{grandTotal.toLocaleString()}</span>
                   </div>

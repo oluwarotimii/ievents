@@ -1,4 +1,4 @@
-class Paystack {
+export default class Paystack {
     private secretKey: string
     private baseUrl = "https://api.paystack.co"
   
@@ -14,6 +14,13 @@ class Paystack {
       metadata?: any
     }) {
       try {
+        console.log("Initializing Paystack transaction with data:", {
+          email: data.email,
+          amount: data.amount / 100, // Log in naira for readability
+          reference: data.reference,
+          callback_url: data.callback_url,
+        })
+  
         const response = await fetch(`${this.baseUrl}/transaction/initialize`, {
           method: "POST",
           headers: {
@@ -25,10 +32,13 @@ class Paystack {
   
         if (!response.ok) {
           const errorText = await response.text()
+          console.error("Paystack API error:", errorText)
           throw new Error(`Paystack API error: ${response.status} ${errorText}`)
         }
   
         const result = await response.json()
+        console.log("Paystack initialization successful:", result)
+  
         return result
       } catch (error) {
         console.error("Error in Paystack.initializeTransaction:", error)
@@ -38,6 +48,8 @@ class Paystack {
   
     async verifyTransaction(reference: string) {
       try {
+        console.log(`Verifying Paystack transaction with reference: ${reference}`)
+  
         const response = await fetch(`${this.baseUrl}/transaction/verify/${reference}`, {
           method: "GET",
           headers: {
@@ -48,10 +60,13 @@ class Paystack {
   
         if (!response.ok) {
           const errorText = await response.text()
+          console.error("Paystack verification API error:", errorText)
           throw new Error(`Paystack API error: ${response.status} ${errorText}`)
         }
   
         const result = await response.json()
+        console.log("Paystack verification result:", result)
+  
         return result
       } catch (error) {
         console.error("Error in Paystack.verifyTransaction:", error)
@@ -59,6 +74,4 @@ class Paystack {
       }
     }
   }
-  
-  export default Paystack
   

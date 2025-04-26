@@ -1,10 +1,18 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import prisma from "@/lib/prisma"
+import { PrismaClient } from "@prisma/client"
 import { requireAuth } from "@/lib/auth"
-import { createSubaccount, listBanks, verifyTransaction, testPaystackConnection } from "@/lib/paystack"
-import Paystack from "@/lib/paystack-node"
+import {
+  createSubaccount,
+  listBanks,
+  verifyTransaction,
+  generateTransactionReference,
+  testPaystackConnection,
+} from "@/lib/paystack"
+
+// Initialize Prisma client directly in this file to ensure it's available
+const prisma = new PrismaClient()
 
 // Save payment settings
 export async function savePaymentSettings(formData: FormData) {
@@ -297,60 +305,161 @@ export async function initializeFormPayment(
   email: string,
   name: string,
   responseId: number,
-): Promise<{ success: boolean; message?: string; paymentUrl?: string }> {
+): Promise<{ success: boolean; message?: string; paymentUrl?: string; reference?: string }> {
   try {
     console.log(`Initializing payment for form ${formCode}, response ${responseId}`)
 
-    // Get the form details
+    if (!email) {
+      console.error("Missing email for payment initialization")
+      return {
+        success: false,
+        message: "Email is required for payment processing",
+      }
+    }
+
+    if (!responseId) {
+      console.error("Missing responseId for payment initialization")
+      return {
+        success: false,
+        message: "Invalid response ID",
+      }
+    }
+
+    // Find the form
     const form = await prisma.form.findUnique({
       where: { code: formCode },
-      select: {
-        id: 1,
-        name: 1,
-        paymentAmount: 1,
-        collectsPayments: 1,
-        userId: 1,
+      include: {
+        user: {
+          include: {
+            paymentSettings: true,
+          },
+        },
       },
     })
 
     if (!form) {
-      console.error(`Form with code ${formCode} not found`)
-      return { success: false, message: "Form not found" }
+      console.error(`Form not found with code: ${formCode}`)
+      return {
+        success: false,
+        message: "Form not found",
+      }
     }
 
-    // Get the form response
-    const response = await prisma.formResponse.findUnique({
+    // Find the response to get payment fields
+    const response = await prisma.response.findUnique({
       where: { id: responseId },
       include: {
-        paymentItems: true,
+        data: true,
       },
     })
 
     if (!response) {
-      console.error(`Response with ID ${responseId} not found`)
-      return { success: false, message: "Response not found" }
-    }
-
-    // Calculate total amount
-    let totalAmount = form.paymentAmount || 0
-
-    // Add payment items if any
-    if (response.paymentItems && response.paymentItems.length > 0) {
-      for (const item of response.paymentItems) {
-        totalAmount += item.amount
+      console.error(`Response not found with ID: ${responseId}`)
+      return {
+        success: false,
+        message: "Response not found",
       }
     }
 
-    // Calculate platform fee (2% capped at ₦200)
-    const platformFee = Math.min(totalAmount * 0.02, 200)
-    const grandTotal = totalAmount + platformFee
-
-    if (grandTotal <= 0) {
-      return { success: false, message: "Invalid payment amount" }
+    // Check if payment was already processed for this response
+    if (response.paymentStatus === "PAID") {
+      console.log(`Payment already processed for response ${responseId}`)
+      return {
+        success: false,
+        message: "Payment has already been processed for this registration",
+      }
     }
 
-    // Generate a unique reference
-    const reference = `EVT_${Date.now()}_${Math.floor(Math.random() * 100000)}`
+    // Calculate total from payment fields
+    let paymentFieldsTotal = 0
+    try {
+      response.data.forEach((data) => {
+        try {
+          // Check if this is a payment field data
+          if (data.value && data.value.startsWith("{") && data.value.includes("amount")) {
+            const paymentData = JSON.parse(data.value)
+            if (paymentData.amount) {
+              const amount = Number.parseFloat(paymentData.amount)
+              if (!isNaN(amount)) {
+                paymentFieldsTotal += amount
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Error parsing payment field data:", e)
+          // Skip if not valid JSON
+        }
+      })
+    } catch (error) {
+      console.error("Error calculating payment fields total:", error)
+    }
+
+    console.log(`Payment fields total: ${paymentFieldsTotal}`)
+
+    // Add form-level payment amount if enabled
+    const formPaymentAmount = form.collectsPayments && form.paymentAmount ? form.paymentAmount : 0
+    console.log(`Form payment amount: ${formPaymentAmount}`)
+
+    // Total base amount is sum of both payment types
+    const baseAmount = formPaymentAmount + paymentFieldsTotal
+    console.log(`Total base amount: ${baseAmount}`)
+
+    // If no payment is required, return error
+    if (baseAmount <= 0) {
+      console.error("No payment amount specified")
+      return {
+        success: false,
+        message: "No payment amount specified",
+      }
+    }
+
+    // Check if user has payment settings
+    if (!form.user.paymentSettings?.paystackSubaccountCode) {
+      console.error("Form owner has not set up payment collection")
+      return {
+        success: false,
+        message: "The form owner has not set up payment collection properly",
+      }
+    }
+
+    // Generate reference
+    const reference = generateTransactionReference()
+    console.log(`Generated payment reference: ${reference}`)
+
+    // Calculate platform fee (2% capped at ₦200)
+    const platformFee = Math.min(baseAmount * 0.02, 200)
+    const totalAmount = baseAmount + platformFee
+
+    console.log(`Platform fee: ${platformFee}, Total amount: ${totalAmount}`)
+
+    // Create transaction record
+    const transaction = await prisma.transaction.create({
+      data: {
+        responseId,
+        userId: form.userId,
+        amount: totalAmount,
+        fee: platformFee,
+        netAmount: baseAmount,
+        currency: form.paymentCurrency || "NGN",
+        reference,
+        status: "PENDING",
+        paymentMethod: "card",
+        customerEmail: email,
+        customerName: name,
+        paymentGateway: "paystack", // Add the default payment gateway
+      },
+    })
+
+    console.log(`Created transaction record: ${transaction.id}`)
+
+    // Update response payment status
+    await prisma.response.update({
+      where: { id: responseId },
+      data: {
+        paymentStatus: "PENDING",
+        paymentReference: reference,
+      },
+    })
 
     // Get the APP_URL from environment variables with fallback
     const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
@@ -363,63 +472,88 @@ export async function initializeFormPayment(
 
     console.log(`Using callback URL: ${callbackUrl}`)
 
-    // Initialize transaction in the database
-    const transaction = await prisma.transaction.create({
-      data: {
-        responseId,
-        userId: form.userId,
-        amount: grandTotal,
-        fee: platformFee,
-        netAmount: totalAmount,
-        currency: "NGN",
-        reference,
-        status: "PENDING",
-        paymentMethod: "card",
-        customerEmail: email,
-        customerName: name,
-        paymentGateway: "paystack",
-      },
-    })
-
-    // Initialize payment with Paystack
-    const paystack = new Paystack(process.env.PAYSTACK_SECRET_KEY!)
-
-    const paystackResponse = await paystack.initializeTransaction({
-      email,
-      amount: grandTotal * 100, // Paystack expects amount in kobo
-      reference,
-      callback_url: callbackUrl,
-      metadata: {
-        formCode,
-        responseId,
-        formName: form.name,
-        custom_fields: [
-          {
-            display_name: "Form Code",
-            variable_name: "form_code",
-            value: formCode,
-          },
-          {
-            display_name: "Event",
-            variable_name: "event_name",
-            value: form.name,
-          },
-        ],
-      },
-    })
-
-    console.log("Paystack initialization response:", paystackResponse)
-
-    if (!paystackResponse.status) {
-      throw new Error(paystackResponse.message || "Failed to initialize payment")
+    // Initialize transaction with Paystack
+    const paystackMetadata = {
+      formCode: form.code,
+      responseId,
+      transactionId: transaction.id,
+      baseAmount,
+      platformFee,
+      formName: form.name,
+      customerName: name,
+      customerEmail: email,
+      custom_fields: [
+        {
+          display_name: "Form Code",
+          variable_name: "form_code",
+          value: formCode,
+        },
+        {
+          display_name: "Event",
+          variable_name: "event_name",
+          value: form.name,
+        },
+      ],
     }
 
-    return {
-      success: true,
-      paymentUrl: paystackResponse.data.authorization_url,
+    try {
+      console.log("Initializing Paystack transaction")
+
+      // Import the Paystack class
+      const { default: Paystack } = await import("@/lib/paystack-node")
+      const paystack = new Paystack(process.env.PAYSTACK_SECRET_KEY || "")
+
+      const paystackResponse = await paystack.initializeTransaction({
+        email,
+        amount: totalAmount * 100, // Paystack expects amount in kobo
+        reference,
+        callback_url: callbackUrl,
+        metadata: paystackMetadata,
+      })
+
+      if (!paystackResponse.status) {
+        // Update transaction status to failed
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: "FAILED",
+          },
+        })
+
+        console.error(`Paystack initialization failed: ${paystackResponse.message || "Unknown error"}`)
+        return {
+          success: false,
+          message: `Failed to initialize payment: ${paystackResponse.message || "Unknown error"}`,
+        }
+      }
+
+      // Log successful payment initialization
+      console.log(
+        `Payment initialized: ${reference} for form ${formCode}, amount: ${totalAmount}, URL: ${paystackResponse.data.authorization_url}`,
+      )
+
+      // Add this debug log to ensure the URL is being returned properly
+      console.log("Returning payment URL to client:", paystackResponse.data.authorization_url)
+
+      return {
+        success: true,
+        paymentUrl: paystackResponse.data.authorization_url,
+        reference,
+      }
+    } catch (error) {
+      // Update transaction status to failed
+      await prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: "FAILED",
+        },
+      })
+
+      console.error("Error during Paystack initialization:", error)
+      throw error
     }
   } catch (error) {
-    console.error("Error initializing payment:", error)
+    console.error("Error initializing form payment:", error)
     return {
       success: false,
       message:
