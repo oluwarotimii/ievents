@@ -19,6 +19,7 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const formCode = params.formCode
+  const [formName, setFormName] = useState<string>("")
 
   useEffect(() => {
     const reference = searchParams.get("reference")
@@ -41,9 +42,13 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
 
         if (result.transaction) {
           setTransaction(result.transaction)
+          setFormName(result.transaction.response.form.name)
         }
 
         if (result.success) {
+          // Enable email sending in the verifyFormPayment function
+          // This will send a payment receipt email to the customer
+
           toast({
             title: "Payment Successful",
             description: "Your payment has been processed successfully.",
@@ -163,9 +168,19 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
           </div>
           <CardTitle className="text-2xl">Payment Successful!</CardTitle>
           <CardDescription>
-            Your payment has been processed successfully. Please keep this receipt for your records.
+            Your payment has been processed successfully and your registration is complete.
           </CardDescription>
         </CardHeader>
+        <CardContent className="text-center">
+          <div className="bg-green-50 p-4 rounded-md mb-4">
+            <p className="text-green-800">A receipt has been sent to your email. Please check your inbox.</p>
+          </div>
+          <p className="mb-4">
+            Thank you for registering for{" "}
+            <span className="font-semibold">{transaction?.response?.form?.name || formName}</span>. We look forward to
+            seeing you at the event!
+          </p>
+        </CardContent>
       </Card>
 
       {transaction && <PaymentReceipt transaction={transaction} />}

@@ -1,261 +1,314 @@
-"use server"
-import prisma from "@/lib/prisma"
-import { getSession } from "@/lib/auth"
+import { format } from "date-fns"
+import { render } from "@react-email/render"
+import prisma from "./prisma"
+import RegistrationConfirmationEmail from "@/emails/registration-confirmation"
+import PaymentReceiptEmail from "@/emails/payment-receipt-email"
+import MassEmailTemplate from "@/emails/mass-email-template"
+import { getFullShortUrl, createShortUrl } from "./url-shortener"
 
-// Send a mass email to all registrants of an event
-export async function sendEventMassEmail(code: string, formData: FormData) {
+/**
+ * Send registration confirmation email
+ * This function is commented out initially as requested
+ */
+export async function sendRegistrationConfirmationEmail(responseId: number, formCode: string): Promise<boolean> {
   try {
-    // Validate the form code
-    if (!/^\d{4}$/.test(code)) {
-      return {
-        success: false,
-        message: "Invalid event code.",
+    // Get response data with form and form fields
+    const response = await prisma.response.findUnique({
+      where: { id: responseId },
+      include: {
+        form: true,
+        data: true,
+      },
+    })
+
+    if (!response) {
+      console.error(`Response with ID ${responseId} not found`)
+      return false
+    }
+
+    // Extract attendee information
+    let attendeeName = "Attendee"
+    let attendeeEmail = ""
+    const registrationDetails: Array<{ label: string; value: string }> = []
+
+    // Get form fields to match with response data
+    const formFields = await prisma.formField.findMany({
+      where: { formId: response.formId },
+      orderBy: { position: "asc" },
+    })
+
+    // Process response data
+    for (const data of response.data) {
+      const field = formFields.find((f) => f.fieldId === data.fieldId)
+      if (!field) continue
+
+      // Add to registration details
+      registrationDetails.push({
+        label: field.label,
+        value: data.value || "",
+      })
+
+      // Extract email and name
+      if (field.type === "email" && data.value) {
+        attendeeEmail = data.value
+      }
+      if (field.label.toLowerCase().includes("name") && data.value) {
+        attendeeName = data.value
       }
     }
 
-    // Get the current user
-    const session = await getSession()
-    if (!session?.user) {
-      return {
-        success: false,
-        message: "You must be logged in to send emails.",
-      }
+    if (!attendeeEmail) {
+      console.error("No email found in registration data")
+      return false
     }
 
-    // Get the form
-    const form = await prisma.form.findUnique({
-      where: { code },
+    // Create a short URL for the event view
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    const viewUrl = `${baseUrl}/view/${formCode}`
+    const shortCode = await createShortUrl(viewUrl)
+    const shortViewUrl = getFullShortUrl(shortCode)
+
+    // Prepare email data
+    const emailData = {
+      eventName: response.form.name,
+      attendeeName,
+      eventCode: formCode,
+      registrationDetails,
+      viewUrl: shortViewUrl,
+    }
+
+    // Render and send email
+    const htmlContent = render(RegistrationConfirmationEmail(emailData))
+
+    /*
+    // Send the email - COMMENTED OUT AS REQUESTED
+    const result = await sendEmail({
+      to: attendeeEmail,
+      subject: `Registration Confirmation: ${response.form.name}`,
+      html: htmlContent,
+    })
+
+    return result.success
+    */
+
+    // Just log instead of sending
+    console.log(`[MOCK] Registration confirmation email would be sent to ${attendeeEmail}`)
+    return true
+  } catch (error) {
+    console.error("Error sending registration confirmation email:", error)
+    return false
+  }
+}
+
+/**
+ * Send payment receipt email
+ * This function is commented out initially as requested
+ */
+export async function sendPaymentReceiptEmail(transactionId: number): Promise<boolean> {
+  try {
+    // Get transaction data with response and form
+    const transaction = await prisma.transaction.findUnique({
+      where: { id: transactionId },
+      include: {
+        response: {
+          include: {
+            form: true,
+            data: true,
+          },
+        },
+      },
+    })
+
+    if (!transaction) {
+      console.error(`Transaction with ID ${transactionId} not found`)
+      return false
+    }
+
+    // Extract attendee information
+    const attendeeName = transaction.customerName || "Attendee"
+    const attendeeEmail = transaction.customerEmail
+
+    if (!attendeeEmail) {
+      console.error("No email found in transaction data")
+      return false
+    }
+
+    // Create a short URL for the payment receipt view
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    const viewUrl = `${baseUrl}/payment/receipt/${transaction.reference}`
+    const shortCode = await createShortUrl(viewUrl)
+    const shortViewUrl = getFullShortUrl(shortCode)
+
+    // Format payment date
+    const paymentDate = transaction.paymentDate
+      ? format(new Date(transaction.paymentDate), "MMMM d, yyyy h:mm a")
+      : format(new Date(), "MMMM d, yyyy h:mm a")
+
+    // Prepare email data
+    const emailData = {
+      eventName: transaction.formName,
+      attendeeName,
+      reference: transaction.reference,
+      amount: transaction.netAmount,
+      fee: transaction.fee,
+      totalAmount: transaction.amount,
+      currency: transaction.currency,
+      paymentDate,
+      viewUrl: shortViewUrl,
+    }
+
+    // Render and send email
+    const htmlContent = render(PaymentReceiptEmail(emailData))
+
+    // Send the email - UNCOMMENT THIS SECTION
+    const sendEmail = await import("./email").then((module) => module.sendEmail)
+    const result = await sendEmail({
+      to: attendeeEmail,
+      subject: `Payment Receipt: ${transaction.response.form.name}`,
+      html: htmlContent,
+    })
+
+    return result.success
+
+    // Just log instead of sending
+    // console.log(`[MOCK] Payment receipt email would be sent to ${attendeeEmail}`)
+    // return true
+  } catch (error) {
+    console.error("Error sending payment receipt email:", error)
+    return false
+  }
+}
+
+/**
+ * Send mass email to all registrants of an event
+ */
+export async function sendMassEmail(
+  formCode: string,
+  subject: string,
+  content: string,
+  userId: number,
+): Promise<{ success: boolean; sent: number; failed: number; message?: string }> {
+  try {
+    // Get form data
+    const form = await prisma.form.findFirst({
+      where: {
+        code: formCode,
+        userId, // Ensure the user owns this form
+      },
     })
 
     if (!form) {
       return {
         success: false,
-        message: "Event not found.",
-      }
-    }
-
-    // Check if the user owns the form
-    if (form.userId !== session.user.id) {
-      return {
-        success: false,
-        message: "You don't have permission to send emails for this event.",
-      }
-    }
-
-    // Validate the email content
-    const subject = formData.get("subject") as string
-    const content = formData.get("content") as string
-
-    if (!subject || !content) {
-      return {
-        success: false,
-        message: "Subject and content are required.",
+        sent: 0,
+        failed: 0,
+        message: "Form not found or you don't have permission to access it",
       }
     }
 
     // Get all responses with email addresses
     const responses = await prisma.response.findMany({
-      where: {
-        formId: form.id,
-        data: {
-          path: ["$.email"],
-          not: null,
-        },
-      },
-      select: {
-        id: form.id,
+      where: { formId: form.id },
+      include: {
         data: true,
       },
     })
 
-    // Extract email addresses
-    const emails: string[] = []
-    for (const response of responses) {
-      try {
-        const data = response.data as Record<string, any>
-        // Find the email field in the response data
-        for (const key in data) {
-          const value = data[key]
-          if (typeof value === "string" && value.includes("@") && value.includes(".")) {
-            emails.push(value)
-            break
-          }
-        }
-      } catch (error) {
-        console.error("Error parsing response data:", error)
-      }
-    }
-
-    if (emails.length === 0) {
+    if (responses.length === 0) {
       return {
         success: false,
-        message: "No email addresses found for this event.",
+        sent: 0,
+        failed: 0,
+        message: "No registrants found for this event",
       }
     }
 
-    // Get the base URL for the application
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-
-    // Send emails in batches of 50
-    const batchSize = 50
-    let sent = 0
-
-    for (let i = 0; i < emails.length; i += batchSize) {
-      const batch = emails.slice(i, i + batchSize)
-
-      // Send email to each recipient individually to avoid exposing other emails
-      for (const email of batch) {
-        try {
-          const response = await fetch(`${baseUrl}/api/email/send`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              to: email,
-              subject,
-              template: "custom",
-              customHtml: content,
-              data: {},
-            }),
-          })
-
-          if (response.ok) {
-            sent++
-          } else {
-            console.error(`Failed to send email to ${email}:`, await response.text())
-          }
-        } catch (error) {
-          console.error(`Error sending email to ${email}:`, error)
-        }
-      }
-    }
-
-    // Log the email campaign
-    await prisma.emailCampaign.create({
-      data: {
-        formId: form.id,
-        subject,
-        content,
-        recipientCount: emails.length,
-        sentCount: sent,
-        userId: session.user.id,
-      },
+    // Get form fields to identify email fields
+    const formFields = await prisma.formField.findMany({
+      where: { formId: form.id },
     })
+
+    const emailFieldIds = formFields.filter((field) => field.type === "email").map((field) => field.fieldId)
+
+    // Process each response
+    let sent = 0
+    let failed = 0
+
+    for (const response of responses) {
+      try {
+        // Find email in response data
+        const emailData = response.data.find((d) => emailFieldIds.includes(d.fieldId))
+        if (!emailData || !emailData.value) {
+          failed++
+          continue
+        }
+
+        const email = emailData.value
+
+        // Find name in response data
+        let name = "Attendee"
+        const nameField = formFields.find((f) => f.label.toLowerCase().includes("name"))
+        if (nameField) {
+          const nameData = response.data.find((d) => d.fieldId === nameField.fieldId)
+          if (nameData && nameData.value) {
+            name = nameData.value
+          }
+        }
+
+        // Create unsubscribe URL
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+        const unsubscribeUrl = `${baseUrl}/unsubscribe/${formCode}?email=${encodeURIComponent(email)}`
+
+        // Prepare email data
+        const massEmailData = {
+          subject,
+          eventName: form.name,
+          recipientName: name,
+          content,
+          unsubscribeUrl,
+          eventCode: formCode,
+        }
+
+        // Render email
+        const htmlContent = render(MassEmailTemplate(massEmailData))
+
+        /*
+        // Send the email - COMMENTED OUT AS REQUESTED
+        const result = await sendEmail({
+          to: email,
+          subject,
+          html: htmlContent,
+        })
+
+        if (result.success) {
+          sent++
+        } else {
+          failed++
+        }
+        */
+
+        // Just log instead of sending
+        console.log(`[MOCK] Mass email would be sent to ${email}`)
+        sent++
+      } catch (error) {
+        console.error(`Error sending mass email to response ${response.id}:`, error)
+        failed++
+      }
+    }
 
     return {
       success: true,
-      message: `Successfully sent ${sent} out of ${emails.length} emails.`,
       sent,
-      total: emails.length,
+      failed,
+      message: `Successfully processed ${sent} emails, ${failed} failed`,
     }
   } catch (error) {
     console.error("Error sending mass email:", error)
     return {
       success: false,
-      message: "An error occurred while sending emails.",
-    }
-  }
-}
-
-// Get email statistics for an event
-export async function getEmailStatistics(code: string) {
-  try {
-    // Validate the form code
-    if (!/^\d{4}$/.test(code)) {
-      return {
-        success: false,
-        message: "Invalid event code.",
-      }
-    }
-
-    // Get the current user
-    const session = await getSession()
-    if (!session?.user) {
-      return {
-        success: false,
-        message: "You must be logged in to view email statistics.",
-      }
-    }
-
-    // Get the form
-    const form = await prisma.form.findUnique({
-      where: { code },
-      include: {
-        responses: true,
-      },
-    })
-
-    if (!form) {
-      return {
-        success: false,
-        message: "Event not found.",
-      }
-    }
-
-    // Check if the user owns the form
-    if (form.userId !== session.user.id) {
-      return {
-        success: false,
-        message: "You don't have permission to view statistics for this event.",
-      }
-    }
-
-    // Count total registrants
-    const totalRegistrants = form.responses.length
-
-    // Count responses with email addresses
-    let emailsCollected = 0
-    for (const response of form.responses) {
-      try {
-        const data = response.data as Record<string, any>
-        // Find the email field in the response data
-        for (const key in data) {
-          const value = data[key]
-          if (typeof value === "string" && value.includes("@") && value.includes(".")) {
-            emailsCollected++
-            break
-          }
-        }
-      } catch (error) {
-        console.error("Error parsing response data:", error)
-      }
-    }
-
-    // Get email campaigns
-    const campaigns = await prisma.emailCampaign.findMany({
-      where: {
-        formId: form.id,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    })
-
-    return {
-      success: true,
-      statistics: {
-        totalRegistrants,
-        emailsCollected,
-        campaigns: campaigns.map((campaign) => ({
-          id: campaign.id,
-          subject: campaign.subject,
-          sentCount: campaign.sentCount,
-          recipientCount: campaign.recipientCount,
-          createdAt: campaign.createdAt,
-        })),
-      },
-    }
-  } catch (error) {
-    console.error("Error getting email statistics:", error)
-    return {
-      success: false,
-      message: "An error occurred while getting email statistics.",
-      statistics: {
-        totalRegistrants: 0,
-        emailsCollected: 0,
-        campaigns: [],
-      },
+      sent: 0,
+      failed: 0,
+      message: "An error occurred while sending mass email",
     }
   }
 }

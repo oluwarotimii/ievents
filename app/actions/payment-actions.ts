@@ -637,6 +637,16 @@ export async function verifyFormPayment(reference: string) {
         },
       })
 
+      // Send payment receipt email
+      try {
+        const { sendPaymentReceiptEmail } = await import("@/lib/email-notifications")
+        await sendPaymentReceiptEmail(transaction.id)
+        console.log(`Payment receipt email sent for transaction ${transaction.id}`)
+      } catch (emailError) {
+        console.error(`Failed to send payment receipt email: ${emailError}`)
+        // Continue even if email sending fails
+      }
+
       revalidatePath(`/transactions`)
       // Get form code from the response instead
       revalidatePath(`/responses/${transaction.response.form.code}`)
