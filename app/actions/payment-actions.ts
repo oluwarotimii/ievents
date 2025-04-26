@@ -461,8 +461,18 @@ export async function initializeFormPayment(
       },
     })
 
-    // Get the APP_URL from environment variables with fallback
-    const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    // Get the APP_URL from environment variables or detect Vercel URL
+    let APP_URL = process.env.NEXT_PUBLIC_APP_URL || ""
+
+    // If we're on Vercel, use the deployment URL
+    if (!APP_URL && process.env.VERCEL_URL) {
+      APP_URL = `https://${process.env.VERCEL_URL}`
+    } else if (!APP_URL) {
+      // Fallback to localhost only if nothing else is available
+      APP_URL = "http://localhost:3000"
+    }
+
+    console.log(`Using APP_URL: ${APP_URL} for payment callback`)
 
     // Ensure APP_URL doesn't have a trailing slash
     const baseUrl = APP_URL.endsWith("/") ? APP_URL.slice(0, -1) : APP_URL

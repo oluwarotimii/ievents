@@ -31,6 +31,9 @@ export default function PaymentCallbackPage({ params }: { params: { formCode: st
       return
     }
 
+    // Add this debug log
+    console.log("Payment callback received with reference:", reference, "for form:", formCode)
+
     const verifyPayment = async () => {
       try {
         console.log(`Verifying payment with reference: ${reference}`)

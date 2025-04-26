@@ -8,6 +8,7 @@ import { LoadingProvider } from "@/components/loading-context"
 export const metadata: Metadata = {
   title: "Eventflow",
   description: "Create and share event registration forms with a simple 4-digit code",
+  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
 }
 
 export default function RootLayout({
@@ -21,7 +22,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="light">
           <LoadingProvider>
             <Header />
-            <main>{children}</main>
+            <main className="w-full max-w-full overflow-x-hidden">{children}</main>
           </LoadingProvider>
         </ThemeProvider>
       </body>

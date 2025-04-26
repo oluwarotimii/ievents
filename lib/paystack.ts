@@ -92,6 +92,7 @@ export class Paystack {
       console.log("Initializing Paystack transaction with data:", {
         ...data,
         amount: data.amount / 100, // Log in naira for readability
+        callback_url: data.callback_url, // Log the callback URL
       })
 
       const response = await fetch(`${this.baseUrl}/transaction/initialize`, {
@@ -159,6 +160,9 @@ export async function initializeTransaction(
   if (!PAYSTACK_SECRET_KEY) {
     throw new Error("Paystack secret key is not configured")
   }
+
+  // Log the callback URL for debugging
+  console.log(`Initializing transaction with callback URL: ${callbackUrl}`)
 
   const payload: any = {
     email,

@@ -110,7 +110,7 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-16 items-center justify-between">
+      <div className="container flex h-16 items-center justify-between px-2 sm:px-4 w-full max-w-full">
         <div className="flex items-center gap-2">
           <Sheet>
             <SheetTrigger asChild>
@@ -119,7 +119,7 @@ export default function Header() {
                 <span className="sr-only">Toggle menu</span>
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-[280px] sm:w-[350px]">
+            <SheetContent side="left" className="w-[280px] sm:w-[350px] p-4">
               <SheetHeader className="pb-6 border-b">
                 <SheetTitle className="text-xl">EventFlow</SheetTitle>
                 <SheetDescription>
