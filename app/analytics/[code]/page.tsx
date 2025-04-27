@@ -1,4 +1,6 @@
 "use client"
+
+import React from "react"
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -7,76 +9,95 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { ArrowLeft, Users, Clock, TrendingUp, CheckCircle2, Loader2 } from "lucide-react"
 import { format, subDays } from "date-fns"
-import { getFormByCode, getFormResponses } from "@/app/actions/form-actions"
+
+interface FormResponse {
+  id: string
+  submittedAt: string
+  data: Record<string, any>
+  checkedIn?: boolean
+}
 
 export default function AnalyticsPage({ params }: { params: { code: string } }) {
-  const { code } = params
+  // Unwrap the params object using React.use()
+  const unwrappedParams = React.use(params)
+  const { code } = unwrappedParams
   const [formName, setFormName] = useState("Event Registration Form")
-  const [responses, setResponses] = useState<any[]>([])
+  const [responses, setResponses] = useState<FormResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [dailyStats, setDailyStats] = useState<{ date: string; count: number }[]>([])
+  const [fieldStats, setFieldStats] = useState<{ fieldName: string; completionRate: number }[]>([])
   const router = useRouter()
   const { toast } = useToast()
 
   useEffect(() => {
-    loadFormData()
-  }, [code])
+    // Check if user is logged in
+    const email = sessionStorage.getItem("loggedInEmail")
+    if (!email) {
+      toast({
+        title: "Not Logged In",
+        description: "Please log in to access analytics.",
+        variant: "destructive",
+      })
+      router.push("/")
+      return
+    }
 
-  const loadFormData = async () => {
+    // Validate that code is 4 digits
+    if (!/^\d{4}$/.test(code)) {
+      toast({
+        title: "Invalid Event Code",
+        description: "Event code must be 4 digits.",
+        variant: "destructive",
+      })
+      router.push("/dashboard")
+      return
+    }
+
+    // Check if this user is the creator of this form
+    const creatorEmails = localStorage.getItem("formCreators") ? JSON.parse(localStorage.getItem("formCreators")!) : {}
+
+    if (creatorEmails[code] !== email) {
+      toast({
+        title: "Access Denied",
+        description: "You don't have permission to view analytics for this form.",
+        variant: "destructive",
+      })
+      router.push("/dashboard")
+      return
+    }
+
+    // Load form data and responses
+    fetchFormData()
+  }, [code, router, toast])
+
+  const fetchFormData = async () => {
     try {
-      // Validate that code is 4 digits
-      if (!/^\d{4}$/.test(code)) {
-        toast({
-          title: "Invalid Event Code",
-          description: "Event code must be 4 digits.",
-          variant: "destructive",
-        })
-        router.push("/dashboard")
-        return
+      // Fetch form data from API
+      const formResponse = await fetch(`/api/forms/${code}`)
+      if (!formResponse.ok) {
+        throw new Error("Failed to fetch form data")
       }
+      const formData = await formResponse.json()
+      setFormName(formData.name || "Event Registration Form")
 
-      // Load form data from the database
-      const form = await getFormByCode(code)
-
-      if (!form) {
-        toast({
-          title: "Event Not Found",
-          description: "No event found with this code. Please check and try again.",
-          variant: "destructive",
-        })
-        router.push("/dashboard")
-        return
+      // Fetch responses
+      const responsesResponse = await fetch(`/api/forms/${code}/responses`)
+      if (!responsesResponse.ok) {
+        throw new Error("Failed to fetch responses")
       }
-
-      setFormName(form.name || "Event Registration Form")
-
-      // Load responses from the database
-      const formResponses = await getFormResponses(code)
-      setResponses(formResponses || [])
+      const responsesData = await responsesResponse.json()
+      setResponses(responsesData)
 
       // Generate daily stats for the last 7 days
-      const last7Days = Array.from({ length: 7 }, (_, i) => {
-        const date = subDays(new Date(), i)
-        return format(date, "yyyy-MM-dd")
-      }).reverse()
+      generateDailyStats(responsesData)
 
-      const dailyCounts = last7Days.map((date) => {
-        const count = formResponses.filter(
-          (response) => format(new Date(response.submittedAt), "yyyy-MM-dd") === date,
-        ).length
-
-        return {
-          date: format(new Date(date), "MMM d"),
-          count,
-        }
-      })
-
-      setDailyStats(dailyCounts)
+      // Generate field completion stats
+      generateFieldStats(responsesData, formData)
     } catch (error) {
-      console.error("Error loading form data:", error)
+      console.error("Error fetching data:", error)
       toast({
         title: "Error",
-        description: "Failed to load form data. Please try again.",
+        description: "Failed to load analytics data.",
         variant: "destructive",
       })
     } finally {
@@ -84,16 +105,60 @@ export default function AnalyticsPage({ params }: { params: { code: string } }) 
     }
   }
 
-  const getCompletionRate = () => {
-    // This would normally calculate based on form views vs submissions
-    // For now, we'll simulate a random completion rate between 40-90%
-    return Math.floor(Math.random() * 50) + 40
+  const generateDailyStats = (formResponses: FormResponse[]) => {
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+      const date = subDays(new Date(), i)
+      return format(date, "yyyy-MM-dd")
+    }).reverse()
+
+    const dailyCounts = last7Days.map((date) => {
+      const count = formResponses.filter(
+        (response: FormResponse) => format(new Date(response.submittedAt), "yyyy-MM-dd") === date,
+      ).length
+
+      return {
+        date: format(new Date(date), "MMM d"),
+        count,
+      }
+    })
+
+    setDailyStats(dailyCounts)
   }
 
-  const getAverageCompletionTime = () => {
-    // This would normally calculate based on actual form completion times
-    // For now, we'll simulate a random time between 1-5 minutes
-    return Math.floor(Math.random() * 4) + 1
+  const generateFieldStats = (formResponses: FormResponse[], formData: any) => {
+    if (!formResponses.length || !formData.elements) {
+      setFieldStats([])
+      return
+    }
+
+    // Extract field names from form elements
+    const formFields = formData.elements
+      .filter((element: any) => element.type !== "heading" && element.type !== "paragraph")
+      .map((element: any) => ({
+        id: element.id,
+        label: element.properties?.label || `Field ${element.id}`,
+      }))
+
+    // Calculate completion rate for each field
+    const stats = formFields.map((field) => {
+      const completedCount = formResponses.filter((response) => {
+        const data = response.data as Record<string, any>
+        return data[field.id] !== undefined && data[field.id] !== null && data[field.id] !== ""
+      }).length
+
+      const completionRate = formResponses.length > 0 ? Math.round((completedCount / formResponses.length) * 100) : 0
+
+      return {
+        fieldName: field.label,
+        completionRate,
+      }
+    })
+
+    // Sort by completion rate descending
+    stats.sort((a, b) => b.completionRate - a.completionRate)
+
+    // Take top 4 fields
+    setFieldStats(stats.slice(0, 4))
   }
 
   const getCheckInStats = () => {
@@ -109,23 +174,25 @@ export default function AnalyticsPage({ params }: { params: { code: string } }) 
 
   if (loading) {
     return (
-      <div className="container flex items-center justify-center min-h-screen p-4">
-        <Loader2 className="h-8 w-8 animate-spin mb-4" />
-        <p>Loading analytics...</p>
+      <div className="container flex items-center justify-center min-h-screen">
+        <div className="flex flex-col items-center">
+          <Loader2 className="h-8 w-8 animate-spin mb-4" />
+          <p>Loading analytics...</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="container mx-auto py-4 md:py-8 px-4">
+    <div className="container mx-auto py-4 sm:py-8 px-4">
       <Card className="mb-6">
         <CardHeader>
-          <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <CardTitle className="text-xl md:text-2xl">{formName} - Analytics</CardTitle>
+              <CardTitle className="text-xl sm:text-2xl">{formName} - Analytics</CardTitle>
               <CardDescription>Event Code: {code}</CardDescription>
             </div>
-            <Button variant="outline" asChild className="w-full md:w-auto">
+            <Button variant="outline" asChild className="w-full sm:w-auto">
               <Link href="/dashboard">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Dashboard
@@ -135,16 +202,16 @@ export default function AnalyticsPage({ params }: { params: { code: string } }) 
         </CardHeader>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center">
               <div className="p-2 bg-primary/10 rounded-full mr-4">
-                <Users className="h-5 w-5 text-primary" />
+                <Users className="h-6 w-6 text-primary" />
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Responses</p>
-                <h3 className="text-xl md:text-2xl font-bold">{responses.length}</h3>
+                <h3 className="text-2xl font-bold">{responses.length}</h3>
               </div>
             </div>
           </CardContent>
@@ -154,11 +221,11 @@ export default function AnalyticsPage({ params }: { params: { code: string } }) 
           <CardContent className="pt-6">
             <div className="flex items-center">
               <div className="p-2 bg-primary/10 rounded-full mr-4">
-                <CheckCircle2 className="h-5 w-5 text-primary" />
+                <CheckCircle2 className="h-6 w-6 text-primary" />
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Checked In</p>
-                <h3 className="text-xl md:text-2xl font-bold">{getCheckInStats().checkedInCount}</h3>
+                <h3 className="text-2xl font-bold">{getCheckInStats().checkedInCount}</h3>
               </div>
             </div>
           </CardContent>
@@ -168,11 +235,11 @@ export default function AnalyticsPage({ params }: { params: { code: string } }) 
           <CardContent className="pt-6">
             <div className="flex items-center">
               <div className="p-2 bg-primary/10 rounded-full mr-4">
-                <TrendingUp className="h-5 w-5 text-primary" />
+                <TrendingUp className="h-6 w-6 text-primary" />
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Check-In Rate</p>
-                <h3 className="text-xl md:text-2xl font-bold">{getCheckInStats().checkInRate}%</h3>
+                <h3 className="text-2xl font-bold">{getCheckInStats().checkInRate}%</h3>
               </div>
             </div>
           </CardContent>
@@ -182,11 +249,11 @@ export default function AnalyticsPage({ params }: { params: { code: string } }) 
           <CardContent className="pt-6">
             <div className="flex items-center">
               <div className="p-2 bg-primary/10 rounded-full mr-4">
-                <Clock className="h-5 w-5 text-primary" />
+                <Clock className="h-6 w-6 text-primary" />
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Avg. Completion Time</p>
-                <h3 className="text-xl md:text-2xl font-bold">{getAverageCompletionTime()} min</h3>
+                <h3 className="text-2xl font-bold">{responses.length > 0 ? "Not Available" : "No Data"}</h3>
               </div>
             </div>
           </CardContent>
@@ -196,78 +263,60 @@ export default function AnalyticsPage({ params }: { params: { code: string } }) 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg md:text-xl">Daily Responses</CardTitle>
+            <CardTitle>Daily Responses</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[200px] md:h-[300px] flex items-end justify-between">
-              {dailyStats.map((day, index) => (
-                <div key={index} className="flex flex-col items-center">
-                  <div
-                    className="bg-primary w-8 md:w-12 rounded-t-md"
-                    style={{
-                      height: day.count ? `${Math.max(day.count * 30, 20)}px` : "4px",
-                      minHeight: day.count ? "20px" : "4px",
-                    }}
-                  ></div>
-                  <div className="text-xs mt-2">{day.date}</div>
-                  <div className="text-sm font-medium">{day.count}</div>
-                </div>
-              ))}
-            </div>
+            {responses.length > 0 ? (
+              <div className="h-[300px] flex items-end justify-between">
+                {dailyStats.map((day, index) => (
+                  <div key={index} className="flex flex-col items-center">
+                    <div
+                      className="bg-primary w-12 rounded-t-md"
+                      style={{
+                        height: day.count ? `${Math.max(day.count * 30, 20)}px` : "4px",
+                        minHeight: day.count ? "20px" : "4px",
+                      }}
+                    ></div>
+                    <div className="text-xs mt-2">{day.date}</div>
+                    <div className="text-sm font-medium">{day.count}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center">
+                <p className="text-muted-foreground">No response data available</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg md:text-xl">Response Distribution</CardTitle>
+            <CardTitle>Field Completion Rates</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {/* This would normally show actual field data distribution */}
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm">Email Provided</span>
-                  <span className="text-sm font-medium">100%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2">
-                  <div className="bg-primary h-2 rounded-full" style={{ width: "100%" }}></div>
-                </div>
+            {fieldStats.length > 0 ? (
+              <div className="space-y-4">
+                {fieldStats.map((field, index) => (
+                  <div key={index}>
+                    <div className="flex justify-between mb-1">
+                      <span className="text-sm">{field.fieldName}</span>
+                      <span className="text-sm font-medium">{field.completionRate}%</span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2">
+                      <div className="bg-primary h-2 rounded-full" style={{ width: `${field.completionRate}%` }}></div>
+                    </div>
+                  </div>
+                ))}
               </div>
-
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm">Phone Number Provided</span>
-                  <span className="text-sm font-medium">78%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2">
-                  <div className="bg-primary h-2 rounded-full" style={{ width: "78%" }}></div>
-                </div>
+            ) : (
+              <div className="h-[200px] flex items-center justify-center">
+                <p className="text-muted-foreground">No field data available</p>
               </div>
-
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm">Payment Completed</span>
-                  <span className="text-sm font-medium">65%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2">
-                  <div className="bg-primary h-2 rounded-full" style={{ width: "65%" }}></div>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm">Dietary Preferences</span>
-                  <span className="text-sm font-medium">42%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2">
-                  <div className="bg-primary h-2 rounded-full" style={{ width: "42%" }}></div>
-                </div>
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
     </div>
   )
 }
-

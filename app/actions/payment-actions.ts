@@ -3,13 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { PrismaClient } from "@prisma/client"
 import { requireAuth } from "@/lib/auth"
-import {
-  createSubaccount,
-  listBanks,
-  verifyTransaction,
-  generateTransactionReference,
-  testPaystackConnection,
-} from "@/lib/paystack"
+import { createSubaccount, listBanks, generateTransactionReference, testPaystackConnection } from "@/lib/paystack"
 
 // Initialize Prisma client directly in this file to ensure it's available
 const prisma = new PrismaClient()
@@ -575,18 +569,19 @@ export async function initializeFormPayment(
 // Verify form payment - no authentication required
 export async function verifyFormPayment(reference: string) {
   try {
-    console.log(`Verifying form payment with reference: ${reference}`)
+    // Verify payment with Paystack
+    const { verifyTransaction: verifyPaystackPayment } = await import("@/lib/paystack")
+    const verification = await verifyPaystackPayment(reference)
 
-    if (!reference || typeof reference !== "string") {
-      console.error("Invalid payment reference:", reference)
+    if (!verification.success) {
       return {
         success: false,
-        message: "Invalid payment reference",
+        message: verification.message || "Payment verification failed",
       }
     }
 
-    // Find the transaction
-    const transaction = await prisma.transaction.findUnique({
+    // Find the transaction by reference
+    const transaction = await prisma.transaction.findFirst({
       where: { reference },
       include: {
         response: {
@@ -598,114 +593,47 @@ export async function verifyFormPayment(reference: string) {
     })
 
     if (!transaction) {
-      console.error(`Transaction not found with reference: ${reference}`)
       return {
         success: false,
         message: "Transaction not found",
       }
     }
 
-    // If transaction is already verified
-    if (transaction.status !== "PENDING") {
-      console.log(`Transaction ${reference} already processed with status: ${transaction.status}`)
-      return {
-        success: transaction.status === "COMPLETED",
-        message: transaction.status === "COMPLETED" ? "Payment was successful" : "Payment failed or was canceled",
-        transaction: transaction.status === "COMPLETED" ? transaction : null,
-      }
+    // Update transaction status
+    const updatedTransaction = await prisma.transaction.update({
+      where: { id: transaction.id },
+      data: {
+        status: "COMPLETED",
+        // Remove paymentDate field since it doesn't exist in the schema
+      },
+      include: {
+        response: {
+          include: {
+            form: true,
+          },
+        },
+      },
+    })
+
+    // Send payment receipt email
+    try {
+      const { sendPaymentReceiptEmail } = await import("@/lib/email-notifications")
+      await sendPaymentReceiptEmail(updatedTransaction)
+    } catch (emailError) {
+      console.error("Failed to send payment receipt email:", emailError)
+      // Continue with the process even if email fails
     }
 
-    try {
-      // Verify with Paystack
-      console.log(`Verifying transaction ${reference} with Paystack`)
-      const paystackResponse = await verifyTransaction(reference)
-      console.log(
-        `Paystack verification response for ${reference}:`,
-        paystackResponse.status ? "Success" : "Failed",
-        paystackResponse.message,
-      )
-
-      if (!paystackResponse.status || paystackResponse.data.status !== "success") {
-        // Update transaction status to failed
-        await prisma.transaction.update({
-          where: { id: transaction.id },
-          data: {
-            status: "FAILED",
-          },
-        })
-
-        console.error(`Payment verification failed for ${reference}: ${paystackResponse.message}`)
-        return {
-          success: false,
-          message: `Payment verification failed: ${paystackResponse.message || "Transaction was not successful"}`,
-        }
-      }
-
-      // Update transaction status to completed - removed paymentDate field
-      console.log(`Updating transaction ${reference} to COMPLETED`)
-      const updatedTransaction = await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: "COMPLETED",
-        },
-        include: {
-          response: {
-            include: {
-              form: true,
-            },
-          },
-        },
-      })
-
-      // Update response payment status
-      console.log(`Updating response ${transaction.responseId} payment status to PAID`)
-      await prisma.response.update({
-        where: { id: transaction.responseId },
-        data: {
-          paymentStatus: "PAID",
-          paymentReference: reference,
-        },
-      })
-
-      // Send payment receipt email
-      try {
-        const { sendPaymentReceiptEmail } = await import("@/lib/email-notifications")
-        await sendPaymentReceiptEmail(transaction.id)
-        console.log(`Payment receipt email sent for transaction ${transaction.id}`)
-      } catch (emailError) {
-        console.error(`Failed to send payment receipt email: ${emailError}`)
-        // Continue even if email sending fails
-      }
-
-      revalidatePath(`/transactions`)
-      // Get form code from the response instead
-      revalidatePath(`/responses/${transaction.response.form.code}`)
-
-      console.log(`Payment verification successful for ${reference}`)
-
-      return {
-        success: true,
-        message: "Payment verified successfully",
-        transaction: updatedTransaction,
-      }
-    } catch (error) {
-      // Update transaction status to failed on verification error
-      console.error(`Error during Paystack verification for ${reference}:`, error)
-
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: "FAILED",
-        },
-      })
-
-      throw error
+    return {
+      success: true,
+      transaction: updatedTransaction,
+      message: "Payment verified successfully",
     }
   } catch (error) {
-    console.error("Error verifying form payment:", error)
+    console.error("Error verifying payment:", error)
     return {
       success: false,
-      message: error instanceof Error ? `Failed to verify payment: ${error.message}` : "Failed to verify payment",
+      message: error instanceof Error ? error.message : "An error occurred while verifying payment",
     }
   }
 }

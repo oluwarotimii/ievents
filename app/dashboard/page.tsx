@@ -1,5 +1,7 @@
 "use client"
 
+import React from "react"
+
 import { Button } from "@/components/ui/button"
 
 import { useState, useEffect } from "react"
@@ -25,14 +27,16 @@ import {
   Mail,
   MoreVertical,
   Search,
+  Share2,
 } from "lucide-react"
 import { format } from "date-fns"
 import { Badge } from "@/components/ui/badge"
 import { getUserForms, deleteForm } from "../actions/form-actions"
 import { logoutUser, getCurrentUserSubscriptionInfo } from "../actions/auth-actions"
 import { useRouter } from "next/navigation"
-import { useLoading } from "@/components/loading-context"
+import { useLoading } from "@/contexts/loading-context"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import ShareFormLink from "@/components/share-form-link"
 
 interface FormData {
   id: number
@@ -52,6 +56,7 @@ export default function DashboardPage() {
   const [deletingForm, setDeletingForm] = useState<string | null>(null)
   const [username, setUsername] = useState<string>("")
   const [greeting, setGreeting] = useState<string>("Welcome")
+  const [selectedForm, setSelectedForm] = useState<string | null>(null)
   const { toast } = useToast()
   const { isLoading, startLoading, stopLoading } = useLoading()
   const [subscriptionInfo, setSubscriptionInfo] = useState<{
@@ -156,6 +161,16 @@ export default function DashboardPage() {
     } finally {
       setDeletingForm(null)
       stopLoading(`delete-${code}`)
+    }
+  }
+
+  const handleFormClick = (code: string) => {
+    // If the form is already selected, navigate to view it
+    if (selectedForm === code) {
+      router.push(`/view/${code}`)
+    } else {
+      // Otherwise, select it to show sharing options
+      setSelectedForm(code)
     }
   }
 
@@ -301,106 +316,117 @@ export default function DashboardPage() {
               {/* Mobile view - Card layout */}
               <div className="block md:hidden space-y-4">
                 {filteredForms.map((form) => (
-                  <Card key={form.id} className="overflow-hidden relative">
-                    {/* Make the entire card clickable to view the form */}
-                    <Link
-                      href={`/view/${form.code}`}
-                      className="absolute inset-0 z-10"
-                      aria-label={`View ${form.name}`}
+                  <div key={form.id}>
+                    <Card
+                      key={form.id}
+                      className={`overflow-hidden relative ${selectedForm === form.code ? "ring-2 ring-primary" : ""}`}
+                      onClick={() => handleFormClick(form.code)}
                     >
-                      <span className="sr-only">View form</span>
-                    </Link>
+                      <CardHeader className="pb-2">
+                        <div className="flex justify-between items-start">
+                          <div className="z-20">
+                            <CardTitle className="text-lg">{form.name}</CardTitle>
+                            <CardDescription className="flex items-center mt-1">
+                              Code: <span className="font-mono font-medium ml-1">{form.code}</span>
+                            </CardDescription>
+                          </div>
+                          <div className="z-20 pointer-events-auto">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                  <span className="sr-only">More options</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/view/${form.code}`} className="cursor-pointer">
+                                    <Eye className="h-4 w-4 mr-2" />
+                                    View Form
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/create/${form.code}`} className="cursor-pointer">
+                                    <Edit className="h-4 w-4 mr-2" />
+                                    Edit Form
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/responses/${form.code}`} className="cursor-pointer">
+                                    <ClipboardList className="h-4 w-4 mr-2" />
+                                    View Responses
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/analytics/${form.code}`} className="cursor-pointer">
+                                    <BarChart3 className="h-4 w-4 mr-2" />
+                                    Analytics
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/qr-codes/${form.code}`} className="cursor-pointer">
+                                    <QrCode className="h-4 w-4 mr-2" />
+                                    QR Codes
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/manual-check-in/${form.code}`} className="cursor-pointer">
+                                    <UserCheck className="h-4 w-4 mr-2" />
+                                    Check-In
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/email-manager/${form.code}`} className="cursor-pointer">
+                                    <Mail className="h-4 w-4 mr-2" />
+                                    Email
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleDeleteForm(form.code)
+                                  }}
+                                  disabled={deletingForm === form.code}
+                                  className="text-destructive focus:text-destructive cursor-pointer"
+                                >
+                                  {deletingForm === form.code ? (
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                  )}
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pb-2 pt-0">
+                        <div className="flex justify-between items-center">
+                          <p className="text-sm text-muted-foreground z-20 pointer-events-none">
+                            Created: {format(new Date(form.createdAt), "MMM d, yyyy")}
+                          </p>
+                          <Badge
+                            variant={form._count.responses > 0 ? "success" : "secondary"}
+                            className="z-20 pointer-events-none"
+                          >
+                            {form._count.responses > 0 ? `${form._count.responses} Responses` : "No Responses"}
+                          </Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
 
-                    <CardHeader className="pb-2">
-                      <div className="flex justify-between items-start">
-                        <div className="z-20 pointer-events-none">
-                          <CardTitle className="text-lg">{form.name}</CardTitle>
-                          <CardDescription className="flex items-center mt-1">
-                            Code: <span className="font-mono font-medium ml-1">{form.code}</span>
-                          </CardDescription>
-                        </div>
-                        <div className="z-20 pointer-events-auto">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <MoreVertical className="h-4 w-4" />
-                                <span className="sr-only">More options</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem asChild>
-                                <Link href={`/view/${form.code}`} className="cursor-pointer">
-                                  <Eye className="h-4 w-4 mr-2" />
-                                  View Form
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/create/${form.code}`} className="cursor-pointer">
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  Edit Form
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/responses/${form.code}`} className="cursor-pointer">
-                                  <ClipboardList className="h-4 w-4 mr-2" />
-                                  View Responses
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/analytics/${form.code}`} className="cursor-pointer">
-                                  <BarChart3 className="h-4 w-4 mr-2" />
-                                  Analytics
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/qr-codes/${form.code}`} className="cursor-pointer">
-                                  <QrCode className="h-4 w-4 mr-2" />
-                                  QR Codes
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/manual-check-in/${form.code}`} className="cursor-pointer">
-                                  <UserCheck className="h-4 w-4 mr-2" />
-                                  Check-In
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/email-manager/${form.code}`} className="cursor-pointer">
-                                  <Mail className="h-4 w-4 mr-2" />
-                                  Email
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleDeleteForm(form.code)}
-                                disabled={deletingForm === form.code}
-                                className="text-destructive focus:text-destructive cursor-pointer"
-                              >
-                                {deletingForm === form.code ? (
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                )}
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
+                    {selectedForm === form.code && (
+                      <div className="mt-2 mb-6">
+                        <ShareFormLink code={form.code} />
                       </div>
-                    </CardHeader>
-                    <CardContent className="pb-2 pt-0">
-                      <div className="flex justify-between items-center">
-                        <p className="text-sm text-muted-foreground z-20 pointer-events-none">
-                          Created: {format(new Date(form.createdAt), "MMM d, yyyy")}
-                        </p>
-                        <Badge
-                          variant={form._count.responses > 0 ? "success" : "secondary"}
-                          className="z-20 pointer-events-none"
-                        >
-                          {form._count.responses > 0 ? `${form._count.responses} Responses` : "No Responses"}
-                        </Badge>
-                      </div>
-                    </CardContent>
-                  </Card>
+                    )}
+                  </div>
                 ))}
               </div>
 
@@ -419,113 +445,139 @@ export default function DashboardPage() {
                   </TableHeader>
                   <TableBody>
                     {filteredForms.map((form) => (
-                      <TableRow key={form.id}>
-                        <TableCell className="font-mono">{form.code}</TableCell>
-                        <TableCell>{form.name}</TableCell>
-                        <TableCell>{format(new Date(form.createdAt), "MMM d, yyyy")}</TableCell>
-                        <TableCell>{form._count.responses}</TableCell>
-                        <TableCell>
-                          <Badge variant={form._count.responses > 0 ? "success" : "secondary"}>
-                            {form._count.responses > 0 ? "Active" : "No Responses"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end space-x-2">
-                            <LoadingButton
-                              variant="ghost"
-                              size="icon"
-                              asChild
-                              loadingId={`edit-${form.code}`}
-                              loadingText=""
+                      <React.Fragment key={form.id}>
+                        <TableRow
+                          className={`cursor-pointer ${selectedForm === form.code ? "bg-muted" : ""}`}
+                          onClick={() => handleFormClick(form.code)}
+                        >
+                          <TableCell className="font-mono">{form.code}</TableCell>
+                          <TableCell>
+                            <Link
+                              href={`/view/${form.code}`}
+                              className="hover:underline"
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              <Link href={`/create/${form.code}`} title="Edit Form">
-                                <Edit className="h-4 w-4" />
-                              </Link>
-                            </LoadingButton>
-                            <LoadingButton
-                              variant="ghost"
-                              size="icon"
-                              asChild
-                              loadingId={`view-${form.code}`}
-                              loadingText=""
-                            >
-                              <Link href={`/view/${form.code}`} title="View Form">
-                                <Eye className="h-4 w-4" />
-                              </Link>
-                            </LoadingButton>
-                            <LoadingButton
-                              variant="ghost"
-                              size="icon"
-                              asChild
-                              loadingId={`responses-${form.code}`}
-                              loadingText=""
-                            >
-                              <Link href={`/responses/${form.code}`} title="View Responses">
-                                <ClipboardList className="h-4 w-4" />
-                              </Link>
-                            </LoadingButton>
-                            <LoadingButton
-                              variant="ghost"
-                              size="icon"
-                              asChild
-                              loadingId={`analytics-${form.code}`}
-                              loadingText=""
-                            >
-                              <Link href={`/analytics/${form.code}`} title="View Analytics">
-                                <BarChart3 className="h-4 w-4" />
-                              </Link>
-                            </LoadingButton>
-                            <LoadingButton
-                              variant="ghost"
-                              size="icon"
-                              asChild
-                              loadingId={`qr-${form.code}`}
-                              loadingText=""
-                            >
-                              <Link href={`/qr-codes/${form.code}`} title="QR Codes">
-                                <QrCode className="h-4 w-4" />
-                              </Link>
-                            </LoadingButton>
-                            <LoadingButton
-                              variant="ghost"
-                              size="icon"
-                              asChild
-                              loadingId={`checkin-${form.code}`}
-                              loadingText=""
-                            >
-                              <Link href={`/manual-check-in/${form.code}`} title="Manual Check-In">
-                                <UserCheck className="h-4 w-4" />
-                              </Link>
-                            </LoadingButton>
-                            <LoadingButton
-                              variant="ghost"
-                              size="icon"
-                              asChild
-                              loadingId={`email-${form.code}`}
-                              loadingText=""
-                            >
-                              <Link href={`/email-manager/${form.code}`} title="Email Manager">
-                                <Mail className="h-4 w-4" />
-                              </Link>
-                            </LoadingButton>
-                            <LoadingButton
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteForm(form.code)}
-                              disabled={deletingForm === form.code}
-                              title="Delete Form"
-                              loadingId={`delete-${form.code}`}
-                              loadingText=""
-                            >
-                              {deletingForm === form.code ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                            </LoadingButton>
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                              {form.name}
+                            </Link>
+                          </TableCell>
+                          <TableCell>{format(new Date(form.createdAt), "MMM d, yyyy")}</TableCell>
+                          <TableCell>{form._count.responses}</TableCell>
+                          <TableCell>
+                            <Badge variant={form._count.responses > 0 ? "success" : "secondary"}>
+                              {form._count.responses > 0 ? "Active" : "No Responses"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end space-x-2" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedForm(selectedForm === form.code ? null : form.code)
+                                }}
+                                title="Share Form"
+                              >
+                                <Share2 className="h-4 w-4" />
+                              </Button>
+                              <LoadingButton
+                                variant="ghost"
+                                size="icon"
+                                asChild
+                                loadingId={`edit-${form.code}`}
+                                loadingText=""
+                              >
+                                <Link href={`/create/${form.code}`} title="Edit Form">
+                                  <Edit className="h-4 w-4" />
+                                </Link>
+                              </LoadingButton>
+                              <LoadingButton
+                                variant="ghost"
+                                size="icon"
+                                asChild
+                                loadingId={`responses-${form.code}`}
+                                loadingText=""
+                              >
+                                <Link href={`/responses/${form.code}`} title="View Responses">
+                                  <ClipboardList className="h-4 w-4" />
+                                </Link>
+                              </LoadingButton>
+                              <LoadingButton
+                                variant="ghost"
+                                size="icon"
+                                asChild
+                                loadingId={`analytics-${form.code}`}
+                                loadingText=""
+                              >
+                                <Link href={`/analytics/${form.code}`} title="View Analytics">
+                                  <BarChart3 className="h-4 w-4" />
+                                </Link>
+                              </LoadingButton>
+                              <LoadingButton
+                                variant="ghost"
+                                size="icon"
+                                asChild
+                                loadingId={`qr-${form.code}`}
+                                loadingText=""
+                              >
+                                <Link href={`/qr-codes/${form.code}`} title="QR Codes">
+                                  <QrCode className="h-4 w-4" />
+                                </Link>
+                              </LoadingButton>
+                              <LoadingButton
+                                variant="ghost"
+                                size="icon"
+                                asChild
+                                loadingId={`checkin-${form.code}`}
+                                loadingText=""
+                              >
+                                <Link href={`/manual-check-in/${form.code}`} title="Manual Check-In">
+                                  <UserCheck className="h-4 w-4" />
+                                </Link>
+                              </LoadingButton>
+                              <LoadingButton
+                                variant="ghost"
+                                size="icon"
+                                asChild
+                                loadingId={`email-${form.code}`}
+                                loadingText=""
+                              >
+                                <Link href={`/email-manager/${form.code}`} title="Email Manager">
+                                  <Mail className="h-4 w-4" />
+                                </Link>
+                              </LoadingButton>
+                              <LoadingButton
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteForm(form.code)
+                                }}
+                                disabled={deletingForm === form.code}
+                                title="Delete Form"
+                                loadingId={`delete-${form.code}`}
+                                loadingText=""
+                              >
+                                {deletingForm === form.code ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </LoadingButton>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {selectedForm === form.code && (
+                          <TableRow>
+                            <TableCell colSpan={6} className="p-0 border-t-0">
+                              <div className="p-4 bg-muted/50">
+                                <ShareFormLink code={form.code} />
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
                     ))}
                   </TableBody>
                 </Table>
@@ -535,7 +587,7 @@ export default function DashboardPage() {
         </CardContent>
         <CardFooter>
           <p className="text-sm text-muted-foreground">
-            Tip: Use the Manual Check-In feature on the day of your event to quickly mark attendees as present.
+            Tip: Click on a form to view sharing options or click the form name to preview it.
           </p>
         </CardFooter>
       </Card>

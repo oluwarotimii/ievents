@@ -11,7 +11,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { ArrowLeft, Send, Users, Mail, AlertTriangle, Loader2 } from "lucide-react"
 import { sendEventMassEmail, getEmailStatistics } from "@/app/actions/email-actions"
-import { prisma } from "@/lib/db"
 
 export default function EmailManagerPage({ params }: { params: { code: string } }) {
   // Unwrap the params object using React.use()
@@ -48,31 +47,24 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
         return
       }
 
-      // Get form data from database using Prisma
-      const form = await prisma.form.findUnique({
-        where: { code },
-        include: { user: true },
-      })
-
-      if (!form) {
-        toast({
-          title: "Event Not Found",
-          description: "No event found with this code. Please check and try again.",
-          variant: "destructive",
-        })
-        router.push("/dashboard")
-        return
+      // Get form data from API
+      const formResponse = await fetch(`/api/forms/${code}`)
+      if (!formResponse.ok) {
+        throw new Error("Failed to fetch form data")
       }
-
-      // Check if current user has permission to access this form
-      // This will be handled by the server action that requires authentication
-
-      setFormName(form.name || "Event Registration Form")
+      const formData = await formResponse.json()
+      setFormName(formData.name || "Event Registration Form")
 
       // Get email statistics
       const statsResult = await getEmailStatistics(code)
       if (statsResult.success) {
         setStatistics(statsResult.statistics)
+      } else {
+        toast({
+          title: "Warning",
+          description: "Could not retrieve email statistics.",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error("Error loading data:", error)
@@ -147,22 +139,24 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
   if (loading) {
     return (
       <div className="container flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin mb-4" />
-        <p>Loading email manager...</p>
+        <div className="flex flex-col items-center">
+          <Loader2 className="h-8 w-8 animate-spin mb-4" />
+          <p>Loading email manager...</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="container mx-auto py-8">
+    <div className="container mx-auto py-4 sm:py-8 px-4">
       <Card className="mb-6">
         <CardHeader>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <CardTitle>{formName} - Email Manager</CardTitle>
+              <CardTitle className="text-xl sm:text-2xl">{formName} - Email Manager</CardTitle>
               <CardDescription>Send emails to all registrants of this event</CardDescription>
             </div>
-            <Button variant="outline" asChild>
+            <Button variant="outline" asChild className="w-full sm:w-auto">
               <Link href="/dashboard">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Dashboard
@@ -171,7 +165,7 @@ export default function EmailManagerPage({ params }: { params: { code: string } 
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center">

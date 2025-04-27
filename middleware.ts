@@ -1,56 +1,52 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-// Add paths that should be accessible without authentication
-const publicPaths = [
-  "/",
-  "/login",
-  "/register",
-  "/forgot-password",
-  "/reset-password",
-  "/verify-email",
-  "/view",
-  "/check-in",
-  "/pricing",
-  "/api", // Allow API routes to be accessed
-  "/s", // Allow short URL redirects
-  "/payment/callback", // Allow payment callback routes without authentication
-  "/payment/receipt", // Allow payment receipt viewing without authentication
-  "/unsubscribe", // Allow unsubscribe links
-]
-
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
+  // Get the pathname
+  const path = request.nextUrl.pathname
 
-  // Check if the path is public
-  const isPublicPath = publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+  // Define public paths that don't require authentication
+  const isPublicPath =
+    path === "/" ||
+    path === "/login" ||
+    path === "/signup" ||
+    path === "/forgot-password" ||
+    path.startsWith("/reset-password/") ||
+    path.startsWith("/verify-email/") ||
+    path.startsWith("/view/") ||
+    path.startsWith("/s/") ||
+    path.startsWith("/api/forms/") ||
+    path.startsWith("/payment/callback/") ||
+    path.startsWith("/api/s/") ||
+    path.startsWith("/api/payment-webhook") ||
+    path.startsWith("/unsubscribe/")
 
-  // Get the session cookie directly from request
-  const sessionToken = request.cookies.get("session_token")?.value
+  // Check if the user is authenticated by looking for the session token
+  const isAuthenticated = request.cookies.get("session_token")?.value
 
-  // If the path is not public and there's no session cookie, redirect to login
-  if (!isPublicPath && !sessionToken) {
-    const url = new URL("/login", request.url)
-    url.searchParams.set("callbackUrl", encodeURI(request.url))
-    return NextResponse.redirect(url)
+  // If the path is not public and the user is not authenticated, redirect to login
+  if (!isPublicPath && !isAuthenticated) {
+    return NextResponse.redirect(new URL("/login", request.url))
   }
 
-  // If there's a session cookie and trying to access login, redirect to dashboard
-  if (sessionToken && pathname === "/login") {
+  // If the path is login or signup and the user is authenticated, redirect to dashboard
+  if ((path === "/login" || path === "/signup") && isAuthenticated) {
     return NextResponse.redirect(new URL("/dashboard", request.url))
   }
 
+  // Continue with the request
   return NextResponse.next()
 }
 
+// Configure the middleware to run on specific paths
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for:
+     * Match all request paths except for the ones starting with:
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public files (public directory)
+     * - public (public files)
      */
     "/((?!_next/static|_next/image|favicon.ico|public).*)",
   ],
