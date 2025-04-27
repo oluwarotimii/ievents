@@ -5,10 +5,10 @@ import RegistrationConfirmationEmail from "@/emails/registration-confirmation"
 import PaymentReceiptEmail from "@/emails/payment-receipt-email"
 import MassEmailTemplate from "@/emails/mass-email-template"
 import { getFullShortUrl, createShortUrl } from "./url-shortener"
+import { sendEmail } from "./email"
 
 /**
  * Send registration confirmation email
- * This function is commented out initially as requested
  */
 export async function sendRegistrationConfirmationEmail(responseId: number, formCode: string): Promise<boolean> {
   try {
@@ -80,8 +80,7 @@ export async function sendRegistrationConfirmationEmail(responseId: number, form
     // Render and send email
     const htmlContent = render(RegistrationConfirmationEmail(emailData))
 
-    /*
-    // Send the email - COMMENTED OUT AS REQUESTED
+    // Send the email
     const result = await sendEmail({
       to: attendeeEmail,
       subject: `Registration Confirmation: ${response.form.name}`,
@@ -89,11 +88,6 @@ export async function sendRegistrationConfirmationEmail(responseId: number, form
     })
 
     return result.success
-    */
-
-    // Just log instead of sending
-    console.log(`[MOCK] Registration confirmation email would be sent to ${attendeeEmail}`)
-    return true
   } catch (error) {
     console.error("Error sending registration confirmation email:", error)
     return false
@@ -102,7 +96,6 @@ export async function sendRegistrationConfirmationEmail(responseId: number, form
 
 /**
  * Send payment receipt email
- * This function is commented out initially as requested
  */
 export async function sendPaymentReceiptEmail(transactionId: number): Promise<boolean> {
   try {
@@ -146,7 +139,7 @@ export async function sendPaymentReceiptEmail(transactionId: number): Promise<bo
 
     // Prepare email data
     const emailData = {
-      eventName: transaction.formName,
+      eventName: transaction.response.form.name,
       attendeeName,
       reference: transaction.reference,
       amount: transaction.netAmount,
@@ -155,25 +148,21 @@ export async function sendPaymentReceiptEmail(transactionId: number): Promise<bo
       currency: transaction.currency,
       paymentDate,
       viewUrl: shortViewUrl,
+      splitAmount: transaction.splitAmount || transaction.netAmount,
+      platformFee: transaction.platformFee || 0,
     }
 
     // Render and send email
     const htmlContent = render(PaymentReceiptEmail(emailData))
 
-    /*
-    // Send the email - COMMENTED OUT AS REQUESTED
+    // Send the email
     const result = await sendEmail({
       to: attendeeEmail,
-      subject: `Payment Receipt: ${transaction.formName}`,
+      subject: `Payment Receipt: ${transaction.response.form.name}`,
       html: htmlContent,
     })
 
     return result.success
-    */
-
-    // Just log instead of sending
-    console.log(`[MOCK] Payment receipt email would be sent to ${attendeeEmail}`)
-    return true
   } catch (error) {
     console.error("Error sending payment receipt email:", error)
     return false
@@ -273,8 +262,7 @@ export async function sendMassEmail(
         // Render email
         const htmlContent = render(MassEmailTemplate(massEmailData))
 
-        /*
-        // Send the email - COMMENTED OUT AS REQUESTED
+        // Send the email
         const result = await sendEmail({
           to: email,
           subject,
@@ -286,11 +274,6 @@ export async function sendMassEmail(
         } else {
           failed++
         }
-        */
-
-        // Just log instead of sending
-        console.log(`[MOCK] Mass email would be sent to ${email}`)
-        sent++
       } catch (error) {
         console.error(`Error sending mass email to response ${response.id}:`, error)
         failed++
@@ -314,3 +297,79 @@ export async function sendMassEmail(
   }
 }
 
+/**
+ * Send subscription receipt email
+ */
+export async function sendSubscriptionReceiptEmail(paymentId: number): Promise<boolean> {
+  try {
+    // Get payment data with subscription and user
+    const payment = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        subscription: {
+          include: {
+            user: true,
+          },
+        },
+      },
+    })
+
+    if (!payment) {
+      console.error(`Payment with ID ${paymentId} not found`)
+      return false
+    }
+
+    const user = payment.subscription.user
+    const email = user.email
+    const name = user.username
+
+    // Format payment date
+    const paymentDate = format(new Date(payment.paymentDate), "MMMM d, yyyy h:mm a")
+    const nextPaymentDate = payment.subscription.nextPaymentDate
+      ? format(new Date(payment.subscription.nextPaymentDate), "MMMM d, yyyy")
+      : "N/A"
+
+    // Get plan name
+    const planName = getPlanName(payment.subscription.planType)
+
+    // Send email
+    const result = await sendEmail({
+      to: email,
+      subject: `Subscription Payment Receipt: ${planName} Plan`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2>Subscription Payment Receipt</h2>
+          <p>Hello ${name},</p>
+          <p>Thank you for your subscription payment. Here are the details:</p>
+          <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p><strong>Plan:</strong> ${planName}</p>
+            <p><strong>Amount:</strong> ${payment.currency} ${payment.amount.toFixed(2)}</p>
+            <p><strong>Payment Date:</strong> ${paymentDate}</p>
+            <p><strong>Payment Method:</strong> ${payment.paymentMethod}</p>
+            <p><strong>Transaction ID:</strong> ${payment.transactionId || "N/A"}</p>
+            <p><strong>Next Payment Date:</strong> ${nextPaymentDate}</p>
+          </div>
+          <p>Thank you for using our platform!</p>
+        </div>
+      `,
+    })
+
+    return result.success
+  } catch (error) {
+    console.error("Error sending subscription receipt email:", error)
+    return false
+  }
+}
+
+function getPlanName(planType: string): string {
+  switch (planType) {
+    case "FREE":
+      return "Free"
+    case "BASIC":
+      return "Basic"
+    case "PREMIUM":
+      return "Premium"
+    default:
+      return "Unknown"
+  }
+}

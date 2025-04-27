@@ -1,11 +1,13 @@
 import { format } from "date-fns"
 import { render } from "@react-email/render"
 import prisma from "@/lib/prisma"
+import { sendMassEmail } from "@/lib/email-notifications"
 import RegistrationConfirmationEmail from "@/emails/registration-confirmation"
 import PaymentReceiptEmail from "@/emails/payment-receipt-email"
 import MassEmailTemplate from "@/emails/mass-email-template"
 import { getFullShortUrl, createShortUrl } from "@/lib/url-shortener"
-
+import { requireAuth } from "@/lib/auth"
+import { z } from "zod"
 /**
  * Send registration confirmation email
  * This function is commented out initially as requested
@@ -309,6 +311,130 @@ export async function sendMassEmail(
       sent: 0,
       failed: 0,
       message: "An error occurred while sending mass email",
+    }
+  }
+}
+
+
+
+
+const massEmailSchema = z.object({
+  subject: z.string().min(1, "Subject is required"),
+  content: z.string().min(1, "Content is required"),
+})
+
+/**
+ * Send a mass email to all registrants of an event
+ */
+export async function sendEventMassEmail(formCode: string, formData: FormData) {
+  try {
+    const user = await requireAuth()
+
+    // Validate form data
+    const subject = formData.get("subject") as string
+    const content = formData.get("content") as string
+
+    const validatedData = massEmailSchema.safeParse({ subject, content })
+    if (!validatedData.success) {
+      return {
+        success: false,
+        message: validatedData.error.errors[0].message,
+      }
+    }
+
+    // Check if the user owns this form
+    const form = await prisma.form.findFirst({
+      where: {
+        code: formCode,
+        userId: user.id,
+      },
+    })
+
+    if (!form) {
+      return {
+        success: false,
+        message: "Form not found or you don't have permission to access it",
+      }
+    }
+
+    // Send the mass email
+    const result = await sendMassEmail(formCode, subject, content, user.id)
+
+    if (result.success) {
+      return {
+        success: true,
+        sent: result.sent,
+        failed: result.failed,
+        message: result.message,
+      }
+    } else {
+      return {
+        success: false,
+        message: result.message || "Failed to send mass email",
+      }
+    }
+  } catch (error) {
+    console.error("Error sending mass email:", error)
+    return {
+      success: false,
+      message: "An error occurred while sending mass email",
+    }
+  }
+}
+
+// Update the getEmailStatistics function to properly retrieve emails from responses
+export async function getEmailStatistics(formCode: string) {
+  try {
+    // Get form and responses with email data
+    const form = await prisma.form.findUnique({
+      where: { code: formCode },
+      include: {
+        responses: {
+          select: {
+            id: true,
+            data: true,
+          },
+        },
+      },
+    })
+
+    if (!form) {
+      return {
+        success: false,
+        message: "Form not found",
+        statistics: { totalRegistrants: 0, emailsCollected: 0 },
+      }
+    }
+
+    // Count total responses
+    const totalRegistrants = form.responses.length
+
+    // Count responses with email fields
+    // Look for email fields in the form data - check common field names
+    const emailsCollected = form.responses.filter((response) => {
+      const data = response.data as Record<string, any>
+      // Check for common email field names in the response data
+      return Object.entries(data).some(([key, value]) => {
+        // Check if the field name contains 'email' and the value is a valid email
+        const isEmailField = key.toLowerCase().includes("email")
+        const isValidEmail = typeof value === "string" && value.includes("@") && value.trim().length > 0
+        return isEmailField && isValidEmail
+      })
+    }).length
+
+    return {
+      success: true,
+      statistics: {
+        totalRegistrants,
+        emailsCollected,
+      },
+    }
+  } catch (error) {
+    console.error("Error getting email statistics:", error)
+    return {
+      success: false,
+      message: "Failed to get email statistics",
+      statistics: { totalRegistrants: 0, emailsCollected: 0 },
     }
   }
 }

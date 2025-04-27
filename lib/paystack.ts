@@ -87,6 +87,10 @@ export class Paystack {
     reference: string
     callback_url: string
     metadata?: any
+    subaccount?: string
+    transaction_charge?: number
+    bearer?: string
+    plan?: string
   }) {
     try {
       console.log("Initializing Paystack transaction with data:", {
@@ -147,6 +151,133 @@ export class Paystack {
       throw error
     }
   }
+
+  // Create a subscription plan
+  async createPlan(data: {
+    name: string
+    amount: number
+    interval: string
+    description?: string
+  }) {
+    try {
+      console.log("Creating Paystack plan:", data)
+
+      const response = await fetch(`${this.baseUrl}/plan`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.secretKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Paystack API error:", errorText)
+        throw new Error(`Paystack API error: ${response.status} ${errorText}`)
+      }
+
+      const result = await response.json()
+      console.log("Paystack plan creation successful:", result)
+
+      return result
+    } catch (error) {
+      console.error("Error in Paystack.createPlan:", error)
+      throw error
+    }
+  }
+
+  // List all plans
+  async listPlans() {
+    try {
+      const response = await fetch(`${this.baseUrl}/plan`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.secretKey}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Paystack API error:", errorText)
+        throw new Error(`Paystack API error: ${response.status} ${errorText}`)
+      }
+
+      const result = await response.json()
+      return result
+    } catch (error) {
+      console.error("Error in Paystack.listPlans:", error)
+      throw error
+    }
+  }
+
+  // Create a subscription
+  async createSubscription(data: {
+    customer: string
+    plan: string
+    authorization: string
+  }) {
+    try {
+      console.log("Creating Paystack subscription:", data)
+
+      const response = await fetch(`${this.baseUrl}/subscription`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.secretKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Paystack API error:", errorText)
+        throw new Error(`Paystack API error: ${response.status} ${errorText}`)
+      }
+
+      const result = await response.json()
+      console.log("Paystack subscription creation successful:", result)
+
+      return result
+    } catch (error) {
+      console.error("Error in Paystack.createSubscription:", error)
+      throw error
+    }
+  }
+
+  // Cancel a subscription
+  async cancelSubscription(subscriptionCode: string) {
+    try {
+      console.log(`Canceling Paystack subscription: ${subscriptionCode}`)
+
+      const response = await fetch(`${this.baseUrl}/subscription/disable`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.secretKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          code: subscriptionCode,
+          token: "token", // This should be the email token sent to the customer
+        }),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Paystack API error:", errorText)
+        throw new Error(`Paystack API error: ${response.status} ${errorText}`)
+      }
+
+      const result = await response.json()
+      console.log("Paystack subscription cancellation successful:", result)
+
+      return result
+    } catch (error) {
+      console.error("Error in Paystack.cancelSubscription:", error)
+      throw error
+    }
+  }
 }
 
 export async function initializeTransaction(
@@ -156,6 +287,7 @@ export async function initializeTransaction(
   callbackUrl: string,
   metadata: Record<string, any> = {},
   subaccount?: string,
+  plan?: string,
 ): Promise<PaystackInitializeResponse> {
   if (!PAYSTACK_SECRET_KEY) {
     throw new Error("Paystack secret key is not configured")
@@ -173,11 +305,17 @@ export async function initializeTransaction(
     currency: "NGN", // Only supporting Naira
   }
 
+  // If plan is provided, add it for subscription payments
+  if (plan) {
+    payload.plan = plan
+  }
+
   // If subaccount is provided, add split payment details
   if (subaccount) {
     payload.subaccount = subaccount
-    // The subaccount gets the base amount, platform fee is kept by the main account
-    payload.transaction_charge = 0 // No additional charge from Paystack
+    // The platform fee is 2% capped at ₦200
+    const platformFee = Math.min(amount * 0.02, 200) * 100 // Convert to kobo
+    payload.transaction_charge = platformFee
     payload.bearer = "account" // The main account bears the transaction fee
   }
 
@@ -270,7 +408,7 @@ export async function createSubaccount(
         business_name: businessName,
         settlement_bank: settlementBank,
         account_number: accountNumber,
-        percentage_charge: 100, // 100% goes to the subaccount, platform fee is handled separately
+        percentage_charge: 98, // 98% goes to the subaccount, 2% platform fee
         description,
         primary_contact_email: email,
         primary_contact_name: businessName,
@@ -311,6 +449,70 @@ export async function listBanks(): Promise<any> {
     return response.json()
   } catch (error) {
     console.error("Paystack list banks error:", error)
+    throw error
+  }
+}
+
+// Create a plan for subscription
+export async function createPlan(
+  name: string,
+  amount: number,
+  interval: "monthly" | "annually" | "biannually" | "weekly" | "daily",
+  description?: string,
+): Promise<any> {
+  if (!PAYSTACK_SECRET_KEY) {
+    throw new Error("Paystack secret key is not configured")
+  }
+
+  try {
+    const response = await fetch("https://api.paystack.co/plan", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name,
+        amount: Math.round(amount * 100), // Convert to kobo
+        interval,
+        description: description || `${name} - ${interval} subscription`,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`Failed to create plan: ${response.statusText}. ${errorData.message || ""}`)
+    }
+
+    return response.json()
+  } catch (error) {
+    console.error("Paystack create plan error:", error)
+    throw error
+  }
+}
+
+// List all plans
+export async function listPlans(): Promise<any> {
+  if (!PAYSTACK_SECRET_KEY) {
+    throw new Error("Paystack secret key is not configured")
+  }
+
+  try {
+    const response = await fetch("https://api.paystack.co/plan", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      },
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`Failed to fetch plans: ${response.statusText}. ${errorData.message || ""}`)
+    }
+
+    return response.json()
+  } catch (error) {
+    console.error("Paystack list plans error:", error)
     throw error
   }
 }

@@ -3,7 +3,14 @@
 import { revalidatePath } from "next/cache"
 import { PrismaClient } from "@prisma/client"
 import { requireAuth } from "@/lib/auth"
-import { createSubaccount, listBanks, generateTransactionReference, testPaystackConnection } from "@/lib/paystack"
+import {
+  createSubaccount,
+  listBanks,
+  verifyTransaction,
+  generateTransactionReference,
+  testPaystackConnection,
+} from "@/lib/paystack"
+import { sendPaymentReceiptEmail } from "@/lib/email-notifications"
 
 // Initialize Prisma client directly in this file to ensure it's available
 const prisma = new PrismaClient()
@@ -18,12 +25,21 @@ export async function savePaymentSettings(formData: FormData) {
     const bankName = formData.get("bankName") as string
     const accountNumber = formData.get("accountNumber") as string
     const accountName = formData.get("accountName") as string
+    const splitPercentage = Number.parseInt(formData.get("splitPercentage") as string) || 98 // Default to 98%
 
     // Validate inputs
     if (!businessName || !bankCode || !bankName || !accountNumber || !accountName) {
       return {
         success: false,
         message: "All fields are required",
+      }
+    }
+
+    // Validate split percentage
+    if (splitPercentage < 70 || splitPercentage > 99) {
+      return {
+        success: false,
+        message: "Split percentage must be between 70% and 99%",
       }
     }
 
@@ -87,6 +103,7 @@ export async function savePaymentSettings(formData: FormData) {
         accountName,
         paystackSubaccountId,
         paystackSubaccountCode,
+        splitPercentage,
         updatedAt: new Date(),
       },
       create: {
@@ -98,6 +115,7 @@ export async function savePaymentSettings(formData: FormData) {
         accountName,
         paystackSubaccountId,
         paystackSubaccountCode,
+        splitPercentage,
       },
     })
 
@@ -420,11 +438,17 @@ export async function initializeFormPayment(
     const reference = generateTransactionReference()
     console.log(`Generated payment reference: ${reference}`)
 
-    // Calculate platform fee (2% capped at ₦200)
-    const platformFee = Math.min(baseAmount * 0.02, 200)
-    const totalAmount = baseAmount + platformFee
+    // Get the split percentage from payment settings (default to 98%)
+    const splitPercentage = form.user.paymentSettings.splitPercentage || 98
 
-    console.log(`Platform fee: ${platformFee}, Total amount: ${totalAmount}`)
+    // Calculate platform fee (100% - splitPercentage)
+    const platformFeePercentage = (100 - splitPercentage) / 100
+    const platformFee = baseAmount * platformFeePercentage
+    const splitAmount = baseAmount - platformFee
+    const totalAmount = baseAmount
+
+    console.log(`Split percentage: ${splitPercentage}%`)
+    console.log(`Platform fee: ${platformFee}, Split amount: ${splitAmount}, Total amount: ${totalAmount}`)
 
     // Create transaction record
     const transaction = await prisma.transaction.create({
@@ -440,7 +464,9 @@ export async function initializeFormPayment(
         paymentMethod: "card",
         customerEmail: email,
         customerName: name,
-        paymentGateway: "paystack", // Add the default payment gateway
+        paymentGateway: "paystack",
+        splitAmount,
+        platformFee,
       },
     })
 
@@ -483,6 +509,7 @@ export async function initializeFormPayment(
       transactionId: transaction.id,
       baseAmount,
       platformFee,
+      splitAmount,
       formName: form.name,
       customerName: name,
       customerEmail: email,
@@ -513,6 +540,9 @@ export async function initializeFormPayment(
         reference,
         callback_url: callbackUrl,
         metadata: paystackMetadata,
+        subaccount: form.user.paymentSettings.paystackSubaccountCode,
+        transaction_charge: platformFee * 100, // Convert to kobo
+        bearer: "account", // The main account bears the transaction fee
       })
 
       if (!paystackResponse.status) {
@@ -569,19 +599,18 @@ export async function initializeFormPayment(
 // Verify form payment - no authentication required
 export async function verifyFormPayment(reference: string) {
   try {
-    // Verify payment with Paystack
-    const { verifyTransaction: verifyPaystackPayment } = await import("@/lib/paystack")
-    const verification = await verifyPaystackPayment(reference)
+    console.log(`Verifying form payment with reference: ${reference}`)
 
-    if (!verification.success) {
+    if (!reference || typeof reference !== "string") {
+      console.error("Invalid payment reference:", reference)
       return {
         success: false,
-        message: verification.message || "Payment verification failed",
+        message: "Invalid payment reference",
       }
     }
 
-    // Find the transaction by reference
-    const transaction = await prisma.transaction.findFirst({
+    // Find the transaction
+    const transaction = await prisma.transaction.findUnique({
       where: { reference },
       include: {
         response: {
@@ -593,47 +622,114 @@ export async function verifyFormPayment(reference: string) {
     })
 
     if (!transaction) {
+      console.error(`Transaction not found with reference: ${reference}`)
       return {
         success: false,
         message: "Transaction not found",
       }
     }
 
-    // Update transaction status
-    const updatedTransaction = await prisma.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        status: "COMPLETED",
-        // Remove paymentDate field since it doesn't exist in the schema
-      },
-      include: {
-        response: {
-          include: {
-            form: true,
+    // If transaction is already verified
+    if (transaction.status !== "PENDING") {
+      console.log(`Transaction ${reference} already processed with status: ${transaction.status}`)
+      return {
+        success: transaction.status === "COMPLETED",
+        message: transaction.status === "COMPLETED" ? "Payment was successful" : "Payment failed or was canceled",
+        transaction: transaction.status === "COMPLETED" ? transaction : null,
+      }
+    }
+
+    try {
+      // Verify with Paystack
+      console.log(`Verifying transaction ${reference} with Paystack`)
+      const paystackResponse = await verifyTransaction(reference)
+      console.log(
+        `Paystack verification response for ${reference}:`,
+        paystackResponse.status ? "Success" : "Failed",
+        paystackResponse.message,
+      )
+
+      if (!paystackResponse.status || paystackResponse.data.status !== "success") {
+        // Update transaction status to failed
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: "FAILED",
+          },
+        })
+
+        console.error(`Payment verification failed for ${reference}: ${paystackResponse.message}`)
+        return {
+          success: false,
+          message: `Payment verification failed: ${paystackResponse.message || "Transaction was not successful"}`,
+        }
+      }
+
+      // Update transaction status to completed
+      console.log(`Updating transaction ${reference} to COMPLETED`)
+      const updatedTransaction = await prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: "COMPLETED",
+          paymentDate: new Date(), // Now we have this field in the schema
+        },
+        include: {
+          response: {
+            include: {
+              form: true,
+            },
           },
         },
-      },
-    })
+      })
 
-    // Send payment receipt email
-    try {
-      const { sendPaymentReceiptEmail } = await import("@/lib/email-notifications")
-      await sendPaymentReceiptEmail(updatedTransaction)
-    } catch (emailError) {
-      console.error("Failed to send payment receipt email:", emailError)
-      // Continue with the process even if email fails
-    }
+      // Update response payment status
+      console.log(`Updating response ${transaction.responseId} payment status to PAID`)
+      await prisma.response.update({
+        where: { id: transaction.responseId },
+        data: {
+          paymentStatus: "PAID",
+          paymentReference: reference,
+        },
+      })
 
-    return {
-      success: true,
-      transaction: updatedTransaction,
-      message: "Payment verified successfully",
+      // Send payment receipt email
+      try {
+        await sendPaymentReceiptEmail(transaction.id)
+        console.log(`Payment receipt email sent for transaction ${transaction.id}`)
+      } catch (emailError) {
+        console.error(`Failed to send payment receipt email: ${emailError}`)
+        // Continue even if email sending fails
+      }
+
+      revalidatePath(`/transactions`)
+      // Get form code from the response instead
+      revalidatePath(`/responses/${transaction.response.form.code}`)
+
+      console.log(`Payment verification successful for ${reference}`)
+
+      return {
+        success: true,
+        message: "Payment verified successfully",
+        transaction: updatedTransaction,
+      }
+    } catch (error) {
+      // Update transaction status to failed on verification error
+      console.error(`Error during Paystack verification for ${reference}:`, error)
+
+      await prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: "FAILED",
+        },
+      })
+
+      throw error
     }
   } catch (error) {
-    console.error("Error verifying payment:", error)
+    console.error("Error verifying form payment:", error)
     return {
       success: false,
-      message: error instanceof Error ? error.message : "An error occurred while verifying payment",
+      message: error instanceof Error ? `Failed to verify payment: ${error.message}` : "Failed to verify payment",
     }
   }
 }
@@ -662,14 +758,14 @@ export async function getUserTransactions() {
 
     const totalFees = transactions.reduce((sum, transaction) => {
       if (transaction.status === "COMPLETED") {
-        return sum + transaction.fee
+        return sum + (transaction.platformFee || transaction.fee)
       }
       return sum
     }, 0)
 
     const totalNetAmount = transactions.reduce((sum, transaction) => {
       if (transaction.status === "COMPLETED") {
-        return sum + transaction.netAmount
+        return sum + (transaction.splitAmount || transaction.netAmount)
       }
       return sum
     }, 0)
