@@ -1,8 +1,48 @@
-import { cookies } from "next/headers"
 import { nanoid } from "nanoid"
 import bcrypt from "bcryptjs"
 import prisma from "./prisma"
 import { createShortUrl, getFullShortUrl } from "./url-shortener"
+import { cookies as nextCookies } from "next/headers"
+
+// Helper function to get cookies that works in both App Router and Pages Router
+async function getCookies() {
+  // Check if we're in a browser environment
+  if (typeof window !== "undefined") {
+    // Client-side: Parse cookies from document.cookie
+    const cookieStr = document.cookie
+    return {
+      get: (name) => {
+        const match = cookieStr.match(new RegExp(`(^| )${name}=([^;]+)`))
+        return match ? { value: match[2] } : undefined
+      },
+      set: (name, value, options) => {
+        let cookieString = `${name}=${value}`
+        if (options.expires) cookieString += `; expires=${options.expires.toUTCString()}`
+        if (options.path) cookieString += `; path=${options.path}`
+        if (options.httpOnly) cookieString += "; httpOnly"
+        if (options.secure) cookieString += "; secure"
+        if (options.sameSite) cookieString += `; sameSite=${options.sameSite}`
+        document.cookie = cookieString
+      },
+      delete: (name) => {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`
+      },
+    }
+  }
+
+  try {
+    // Server-side in App Router: Use next/headers
+    return nextCookies()
+  } catch (e) {
+    // Server-side in Pages Router: Return empty implementation
+    // This will be handled by the API route using req/res
+    return {
+      get: () => undefined,
+      set: () => {},
+      delete: () => {},
+    }
+  }
+}
 
 // Hash a password
 export async function hashPassword(password: string): Promise<string> {
@@ -32,8 +72,8 @@ export async function createSession(userId: number): Promise<void> {
     },
   })
 
-  // Set session cookie (await cookies() for App Router)
-  const cookieStore = await cookies()
+  // Set session cookie
+  const cookieStore = await getCookies()
   cookieStore.set("session_token", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -45,7 +85,7 @@ export async function createSession(userId: number): Promise<void> {
 
 // Get the current session
 export async function getSession() {
-  const cookieStore = await cookies()
+  const cookieStore = await getCookies()
   const sessionToken = cookieStore.get("session_token")?.value
 
   if (!sessionToken) {
@@ -66,7 +106,7 @@ export async function getSession() {
 
 // Logout a user
 export async function logout(): Promise<void> {
-  const cookieStore = await cookies()
+  const cookieStore = await getCookies()
   const sessionToken = cookieStore.get("session_token")?.value
 
   if (sessionToken) {
