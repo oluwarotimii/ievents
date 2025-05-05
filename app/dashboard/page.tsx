@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 
-// Icons LFG
+// Icons
 import {
   Edit,
   Eye,
@@ -253,14 +253,14 @@ export default function DashboardPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <LoadingButton
-                variant="outline"
+                variant="secondary"
                 onClick={loadDashboardData}
                 disabled={refreshing}
                 title="Refresh dashboard"
                 loadingId="refresh-dashboard"
                 loadingText="Refreshing..."
                 size="sm"
-                className="h-9"
+                className="h-9 inline-flex items-center"
               >
                 <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
               </LoadingButton>
@@ -269,7 +269,7 @@ export default function DashboardPage() {
                 loadingId="upgrade-plan"
                 loadingText="Loading..."
                 size="sm"
-                className="h-9 bg-gradient-to-r from-violet-500 to-indigo-500 hover:from-violet-600 hover:to-indigo-600"
+                className="h-9 bg-gradient-to-r from-violet-500 to-indigo-500 hover:from-violet-600 hover:to-indigo-600 text-white inline-flex items-center"
               >
                 <Link href="/pricing">Upgrade Plan</Link>
               </LoadingButton>
@@ -279,7 +279,7 @@ export default function DashboardPage() {
                 loadingId="logout"
                 loadingText="Logging out..."
                 size="sm"
-                className="h-9"
+                className="h-9 inline-flex items-center"
               >
                 <LogOut className="h-4 w-4 mr-2" />
                 Logout
@@ -350,9 +350,9 @@ export default function DashboardPage() {
                 disabled={isLoading}
               />
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
               {/* View toggle for larger screens */}
-              <div className="hidden md:flex items-center border rounded-md p-1 mr-2">
+              <div className="hidden md:flex items-center border rounded-md p-1">
                 <Button
                   variant={viewMode === "grid" ? "default" : "ghost"}
                   size="sm"
@@ -375,10 +375,15 @@ export default function DashboardPage() {
 
               {/* Only show the Create Form button if user hasn't reached the limit */}
               {!hasReachedLimit && (
-                <LoadingButton asChild loadingId="create-form" loadingText="Loading..." className="w-full sm:w-auto">
-                  <Link href="/create">
+                <LoadingButton
+                  asChild
+                  loadingId="create-form"
+                  loadingText="Loading..."
+                  className="bg-primary hover:bg-primary/90 text-white flex-shrink-0"
+                >
+                  <Link href="/create" className="inline-flex items-center">
                     <Plus className="h-4 w-4 mr-2" />
-                    Create New Form
+                    <span>Create New Form</span>
                   </Link>
                 </LoadingButton>
               )}
@@ -528,35 +533,50 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="flex flex-wrap gap-1 mt-4">
-                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs inline-flex items-center"
+                            asChild
+                          >
                             <Link href={`/view/${form.code}`} onClick={(e) => e.stopPropagation()}>
                               <Eye className="h-3 w-3 mr-1" />
-                              View
-                            </Link>
-                          </Button>
-                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" asChild>
-                            <Link href={`/create/${form.code}`} onClick={(e) => e.stopPropagation()}>
-                              <Edit className="h-3 w-3 mr-1" />
-                              Edit
-                            </Link>
-                          </Button>
-                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" asChild>
-                            <Link href={`/responses/${form.code}`} onClick={(e) => e.stopPropagation()}>
-                              <ClipboardList className="h-3 w-3 mr-1" />
-                              Responses
+                              <span>View</span>
                             </Link>
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 px-2 text-xs"
+                            className="h-7 px-2 text-xs inline-flex items-center"
+                            asChild
+                          >
+                            <Link href={`/create/${form.code}`} onClick={(e) => e.stopPropagation()}>
+                              <Edit className="h-3 w-3 mr-1" />
+                              <span>Edit</span>
+                            </Link>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs inline-flex items-center"
+                            asChild
+                          >
+                            <Link href={`/responses/${form.code}`} onClick={(e) => e.stopPropagation()}>
+                              <ClipboardList className="h-3 w-3 mr-1" />
+                              <span>Responses</span>
+                            </Link>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs inline-flex items-center"
                             onClick={(e) => {
                               e.stopPropagation()
                               setSelectedForm(selectedForm === form.code ? null : form.code)
                             }}
                           >
                             <Share2 className="h-3 w-3 mr-1" />
-                            Share
+                            <span>Share</span>
                           </Button>
                         </div>
                       </CardContent>
@@ -621,7 +641,7 @@ export default function DashboardPage() {
                               <TableCell className="text-right">
                                 <div className="flex justify-end space-x-1" onClick={(e) => e.stopPropagation()}>
                                   <Button
-                                    variant="ghost"
+                                    variant="secondary"
                                     size="icon"
                                     className="h-8 w-8 rounded-full"
                                     onClick={(e) => {
@@ -633,7 +653,7 @@ export default function DashboardPage() {
                                     <Share2 className="h-4 w-4" />
                                   </Button>
                                   <LoadingButton
-                                    variant="ghost"
+                                    variant="secondary"
                                     size="icon"
                                     asChild
                                     loadingId={`edit-${form.code}`}
@@ -645,7 +665,7 @@ export default function DashboardPage() {
                                     </Link>
                                   </LoadingButton>
                                   <LoadingButton
-                                    variant="ghost"
+                                    variant="secondary"
                                     size="icon"
                                     asChild
                                     loadingId={`responses-${form.code}`}
@@ -657,7 +677,7 @@ export default function DashboardPage() {
                                     </Link>
                                   </LoadingButton>
                                   <LoadingButton
-                                    variant="ghost"
+                                    variant="secondary"
                                     size="icon"
                                     asChild
                                     loadingId={`analytics-${form.code}`}
@@ -670,7 +690,7 @@ export default function DashboardPage() {
                                   </LoadingButton>
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                                      <Button variant="secondary" size="icon" className="h-8 w-8 rounded-full">
                                         <MoreVertical className="h-4 w-4" />
                                         <span className="sr-only">More options</span>
                                       </Button>
