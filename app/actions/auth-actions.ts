@@ -31,10 +31,10 @@ const resetPasswordSchema = z
 
 // Get the current session
 export async function getSession() {
-  // Use dynamic import to avoid the static import error
   try {
+    // Use dynamic import to avoid the static import error
     const authModule = await import("@/lib/auth")
-    return await authModule.getSession()
+    return authModule.getSession()
   } catch (error) {
     console.error("Error getting session:", error)
     return null
@@ -43,8 +43,13 @@ export async function getSession() {
 
 // Get the current user
 export async function getCurrentUser() {
-  const session = await getSession()
-  return session?.user || null
+  try {
+    const authModule = await import("@/lib/auth")
+    return authModule.getCurrentUser()
+  } catch (error) {
+    console.error("Error getting current user:", error)
+    return null
+  }
 }
 
 // Get subscription info for the current user
@@ -88,24 +93,21 @@ export async function getCurrentUserSubscriptionInfo() {
 }
 
 export async function registerUser(formData: FormData) {
-  const validatedFields = registerSchema.safeParse({
-    username: formData.get("username"),
-    email: formData.get("email"),
-    password: formData.get("password"),
-  })
-
-  if (!validatedFields.success) {
-    return {
-      success: false,
-      message: "Invalid input. Please check your information.",
-    }
-  }
-
-  const { username, email, password } = validatedFields.data
-
   try {
-    // Use dynamic import to avoid the static import error
-    const authModule = await import("@/lib/auth")
+    const validatedFields = registerSchema.safeParse({
+      username: formData.get("username"),
+      email: formData.get("email"),
+      password: formData.get("password"),
+    })
+
+    if (!validatedFields.success) {
+      return {
+        success: false,
+        message: "Invalid input. Please check your information.",
+      }
+    }
+
+    const { username, email, password } = validatedFields.data
 
     // Check if user already exists
     const existingUser = await prisma.user.findFirst({
@@ -120,6 +122,9 @@ export async function registerUser(formData: FormData) {
         message: "Username or email already exists.",
       }
     }
+
+    // Use dynamic import for auth functions
+    const authModule = await import("@/lib/auth")
 
     // Create new user
     const passwordHash = await authModule.hashPassword(password)
@@ -149,23 +154,20 @@ export async function registerUser(formData: FormData) {
 }
 
 export async function loginUser(formData: FormData) {
-  const validatedFields = loginSchema.safeParse({
-    username: formData.get("username"),
-    password: formData.get("password"),
-  })
-
-  if (!validatedFields.success) {
-    return {
-      success: false,
-      message: "Invalid username or password.",
-    }
-  }
-
-  const { username, password } = validatedFields.data
-
   try {
-    // Use dynamic import to avoid the static import error
-    const authModule = await import("@/lib/auth")
+    const validatedFields = loginSchema.safeParse({
+      username: formData.get("username"),
+      password: formData.get("password"),
+    })
+
+    if (!validatedFields.success) {
+      return {
+        success: false,
+        message: "Invalid username or password.",
+      }
+    }
+
+    const { username, password } = validatedFields.data
 
     // Find user by username or email
     const user = await prisma.user.findFirst({
@@ -183,6 +185,9 @@ export async function loginUser(formData: FormData) {
         message: "Invalid username or password.",
       }
     }
+
+    // Use dynamic import for auth functions
+    const authModule = await import("@/lib/auth")
 
     // Verify password
     const passwordValid = await authModule.comparePasswords(password, user.passwordHash)
@@ -214,7 +219,6 @@ export async function loginUser(formData: FormData) {
 
 export async function logoutUser() {
   try {
-    // Use dynamic import to avoid the static import error
     const authModule = await import("@/lib/auth")
     await authModule.logout()
     redirect("/")
@@ -226,7 +230,6 @@ export async function logoutUser() {
 
 export async function resendVerificationEmail() {
   try {
-    // Use dynamic import to avoid the static import error
     const authModule = await import("@/lib/auth")
     const session = await authModule.getSession()
 
@@ -265,7 +268,6 @@ export async function resendVerificationEmail() {
 
 export async function verifyUserEmail(token: string) {
   try {
-    // Use dynamic import to avoid the static import error
     const authModule = await import("@/lib/auth")
     const verified = await authModule.verifyEmail(token)
 
@@ -287,23 +289,22 @@ export async function verifyUserEmail(token: string) {
 }
 
 export async function forgotPassword(formData: FormData) {
-  const validatedFields = forgotPasswordSchema.safeParse({
-    email: formData.get("email"),
-  })
-
-  if (!validatedFields.success) {
-    return {
-      success: false,
-      message: "Please enter a valid email address.",
-    }
-  }
-
-  const { email } = validatedFields.data
-
   try {
-    // Use dynamic import to avoid the static import error
+    const validatedFields = forgotPasswordSchema.safeParse({
+      email: formData.get("email"),
+    })
+
+    if (!validatedFields.success) {
+      return {
+        success: false,
+        message: "Please enter a valid email address.",
+      }
+    }
+
+    const { email } = validatedFields.data
+
     const authModule = await import("@/lib/auth")
-    const emailSent = await authModule.sendPasswordResetEmail(email)
+    await authModule.sendPasswordResetEmail(email)
 
     // Always return success even if email doesn't exist for security reasons
     return { success: true }
@@ -317,22 +318,21 @@ export async function forgotPassword(formData: FormData) {
 }
 
 export async function resetUserPassword(token: string, formData: FormData) {
-  const validatedFields = resetPasswordSchema.safeParse({
-    password: formData.get("password"),
-    confirmPassword: formData.get("confirmPassword"),
-  })
-
-  if (!validatedFields.success) {
-    return {
-      success: false,
-      message: validatedFields.error.errors[0].message,
-    }
-  }
-
-  const { password } = validatedFields.data
-
   try {
-    // Use dynamic import to avoid the static import error
+    const validatedFields = resetPasswordSchema.safeParse({
+      password: formData.get("password"),
+      confirmPassword: formData.get("confirmPassword"),
+    })
+
+    if (!validatedFields.success) {
+      return {
+        success: false,
+        message: validatedFields.error.errors[0].message,
+      }
+    }
+
+    const { password } = validatedFields.data
+
     const authModule = await import("@/lib/auth")
     const userId = await authModule.verifyPasswordResetToken(token)
 

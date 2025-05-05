@@ -1,12 +1,12 @@
+"use server"
+
 import { format } from "date-fns"
 import { render } from "@react-email/render"
 import prisma from "@/lib/prisma"
-import { sendMassEmail } from "@/lib/email-notifications"
 import RegistrationConfirmationEmail from "@/emails/registration-confirmation"
 import PaymentReceiptEmail from "@/emails/payment-receipt-email"
 import MassEmailTemplate from "@/emails/mass-email-template"
 import { getFullShortUrl, createShortUrl } from "@/lib/url-shortener"
-import { requireAuth } from "@/lib/auth"
 import { z } from "zod"
 
 /**
@@ -316,9 +316,6 @@ export async function sendMassEmail(
   }
 }
 
-
-
-
 const massEmailSchema = z.object({
   subject: z.string().min(1, "Subject is required"),
   content: z.string().min(1, "Content is required"),
@@ -329,7 +326,18 @@ const massEmailSchema = z.object({
  */
 export async function sendEventMassEmail(formCode: string, formData: FormData) {
   try {
-    const user = await requireAuth()
+    // Use dynamic import to avoid the static import error
+    let user
+    try {
+      const authModule = await import("@/lib/auth")
+      user = await authModule.requireAuth()
+    } catch (error) {
+      console.error("Authentication error:", error)
+      return {
+        success: false,
+        message: "Authentication required. Please log in to continue.",
+      }
+    }
 
     // Validate form data
     const subject = formData.get("subject") as string
