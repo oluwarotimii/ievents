@@ -7,7 +7,7 @@ import RegistrationConfirmationEmail from "@/emails/registration-confirmation"
 import MassEmailTemplate from "@/emails/mass-email-template"
 import { getFullShortUrl, createShortUrl } from "@/lib/url-shortener"
 import { z } from "zod"
-import { sendEmail } from "@/libs/email" // Import from libs folder
+import { sendEmail } from "@/lib/email"
 
 /**
  * Send registration confirmation email

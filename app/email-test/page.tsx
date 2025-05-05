@@ -8,8 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle } from "lucide-react"
-import { testBrevoConnection, sendTestEmail } from "@/libs/email"
-
+import { sendTestEmail, testBrevoConnection } from "@/lib/email"
 export default function EmailTestPage() {
   const [to, setTo] = useState("")
   const [subject, setSubject] = useState("Test Email")
