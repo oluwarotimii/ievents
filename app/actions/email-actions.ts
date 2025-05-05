@@ -8,6 +8,7 @@ import MassEmailTemplate from "@/emails/mass-email-template"
 import { getFullShortUrl, createShortUrl } from "@/lib/url-shortener"
 import { requireAuth } from "@/lib/auth"
 import { z } from "zod"
+
 /**
  * Send registration confirmation email
  * This function is commented out initially as requested

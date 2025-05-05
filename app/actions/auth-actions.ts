@@ -3,18 +3,6 @@
 import { redirect } from "next/navigation"
 import { z } from "zod"
 import prisma from "@/lib/prisma"
-import {
-  hashPassword,
-  comparePasswords,
-  createSession,
-  logout,
-  sendVerificationEmail,
-  sendPasswordResetEmail,
-  verifyEmail,
-  verifyPasswordResetToken,
-  resetPassword,
-} from "@/lib/auth"
-import { cookies } from "next/headers"
 
 const registerSchema = z.object({
   username: z.string().min(3).max(50),
@@ -43,24 +31,10 @@ const resetPasswordSchema = z
 
 // Get the current session
 export async function getSession() {
-  const cookieStore = await cookies()
-  const sessionToken = cookieStore.get("session_token")?.value
-
-  if (!sessionToken) {
-    return null
-  }
-
+  // Use dynamic import to avoid the static import error
   try {
-    const session = await prisma.session.findUnique({
-      where: { token: sessionToken },
-      include: { user: true },
-    })
-
-    if (!session || session.expiresAt < new Date()) {
-      return null
-    }
-
-    return session
+    const authModule = await import("@/lib/auth")
+    return await authModule.getSession()
   } catch (error) {
     console.error("Error getting session:", error)
     return null
@@ -130,6 +104,9 @@ export async function registerUser(formData: FormData) {
   const { username, email, password } = validatedFields.data
 
   try {
+    // Use dynamic import to avoid the static import error
+    const authModule = await import("@/lib/auth")
+
     // Check if user already exists
     const existingUser = await prisma.user.findFirst({
       where: {
@@ -145,7 +122,7 @@ export async function registerUser(formData: FormData) {
     }
 
     // Create new user
-    const passwordHash = await hashPassword(password)
+    const passwordHash = await authModule.hashPassword(password)
     const user = await prisma.user.create({
       data: {
         username,
@@ -156,10 +133,10 @@ export async function registerUser(formData: FormData) {
     })
 
     // Send verification email
-    await sendVerificationEmail(user)
+    await authModule.sendVerificationEmail(user)
 
     // Create session
-    await createSession(user.id)
+    await authModule.createSession(user.id)
 
     return { success: true }
   } catch (error) {
@@ -187,6 +164,9 @@ export async function loginUser(formData: FormData) {
   const { username, password } = validatedFields.data
 
   try {
+    // Use dynamic import to avoid the static import error
+    const authModule = await import("@/lib/auth")
+
     // Find user by username or email
     const user = await prisma.user.findFirst({
       where: {
@@ -205,7 +185,7 @@ export async function loginUser(formData: FormData) {
     }
 
     // Verify password
-    const passwordValid = await comparePasswords(password, user.passwordHash)
+    const passwordValid = await authModule.comparePasswords(password, user.passwordHash)
     if (!passwordValid) {
       return {
         success: false,
@@ -214,7 +194,7 @@ export async function loginUser(formData: FormData) {
     }
 
     // Create session
-    await createSession(user.id)
+    await authModule.createSession(user.id)
 
     // Log successful login
     console.log(`User ${user.username} logged in successfully`)
@@ -233,15 +213,26 @@ export async function loginUser(formData: FormData) {
 }
 
 export async function logoutUser() {
-  await logout()
-  redirect("/")
+  try {
+    // Use dynamic import to avoid the static import error
+    const authModule = await import("@/lib/auth")
+    await authModule.logout()
+    redirect("/")
+  } catch (error) {
+    console.error("Logout error:", error)
+    redirect("/")
+  }
 }
 
 export async function resendVerificationEmail() {
   try {
+    // Use dynamic import to avoid the static import error
+    const authModule = await import("@/lib/auth")
+    const session = await authModule.getSession()
+
     const user = await prisma.user.findFirst({
       where: {
-        id: (await getSession())?.userId,
+        id: session?.userId,
         emailVerified: false,
       },
     })
@@ -253,7 +244,7 @@ export async function resendVerificationEmail() {
       }
     }
 
-    const emailSent = await sendVerificationEmail(user)
+    const emailSent = await authModule.sendVerificationEmail(user)
 
     if (!emailSent) {
       return {
@@ -274,7 +265,9 @@ export async function resendVerificationEmail() {
 
 export async function verifyUserEmail(token: string) {
   try {
-    const verified = await verifyEmail(token)
+    // Use dynamic import to avoid the static import error
+    const authModule = await import("@/lib/auth")
+    const verified = await authModule.verifyEmail(token)
 
     if (!verified) {
       return {
@@ -308,7 +301,9 @@ export async function forgotPassword(formData: FormData) {
   const { email } = validatedFields.data
 
   try {
-    const emailSent = await sendPasswordResetEmail(email)
+    // Use dynamic import to avoid the static import error
+    const authModule = await import("@/lib/auth")
+    const emailSent = await authModule.sendPasswordResetEmail(email)
 
     // Always return success even if email doesn't exist for security reasons
     return { success: true }
@@ -337,7 +332,9 @@ export async function resetUserPassword(token: string, formData: FormData) {
   const { password } = validatedFields.data
 
   try {
-    const userId = await verifyPasswordResetToken(token)
+    // Use dynamic import to avoid the static import error
+    const authModule = await import("@/lib/auth")
+    const userId = await authModule.verifyPasswordResetToken(token)
 
     if (!userId) {
       return {
@@ -346,7 +343,7 @@ export async function resetUserPassword(token: string, formData: FormData) {
       }
     }
 
-    const success = await resetPassword(userId, password)
+    const success = await authModule.resetPassword(userId, password)
 
     if (!success) {
       return {

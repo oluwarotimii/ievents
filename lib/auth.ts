@@ -2,47 +2,6 @@ import { nanoid } from "nanoid"
 import bcrypt from "bcryptjs"
 import prisma from "./prisma"
 import { createShortUrl, getFullShortUrl } from "./url-shortener"
-import { cookies as nextCookies } from "next/headers"
-
-// Helper function to get cookies that works in both App Router and Pages Router
-async function getCookies() {
-  // Check if we're in a browser environment
-  if (typeof window !== "undefined") {
-    // Client-side: Parse cookies from document.cookie
-    const cookieStr = document.cookie
-    return {
-      get: (name) => {
-        const match = cookieStr.match(new RegExp(`(^| )${name}=([^;]+)`))
-        return match ? { value: match[2] } : undefined
-      },
-      set: (name, value, options) => {
-        let cookieString = `${name}=${value}`
-        if (options.expires) cookieString += `; expires=${options.expires.toUTCString()}`
-        if (options.path) cookieString += `; path=${options.path}`
-        if (options.httpOnly) cookieString += "; httpOnly"
-        if (options.secure) cookieString += "; secure"
-        if (options.sameSite) cookieString += `; sameSite=${options.sameSite}`
-        document.cookie = cookieString
-      },
-      delete: (name) => {
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`
-      },
-    }
-  }
-
-  try {
-    // Server-side in App Router: Use next/headers
-    return nextCookies()
-  } catch (e) {
-    // Server-side in Pages Router: Return empty implementation
-    // This will be handled by the API route using req/res
-    return {
-      get: () => undefined,
-      set: () => {},
-      delete: () => {},
-    }
-  }
-}
 
 // Hash a password
 export async function hashPassword(password: string): Promise<string> {
@@ -72,51 +31,106 @@ export async function createSession(userId: number): Promise<void> {
     },
   })
 
-  // Set session cookie
-  const cookieStore = await getCookies()
-  cookieStore.set("session_token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    expires: expiresAt,
-    path: "/",
-  })
+  // Set session cookie using the appropriate method based on environment
+  if (typeof window === "undefined") {
+    // Server-side: Use dynamic import to avoid the static import error
+    try {
+      const { cookies } = await import("next/headers")
+      const cookieStore = cookies()
+      cookieStore.set("session_token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        expires: expiresAt,
+        path: "/",
+      })
+    } catch (error) {
+      // If next/headers is not available (Pages Router), handle it gracefully
+      console.warn("Could not set cookie with next/headers, falling back to API route")
+      // The cookie will be set by the API route or client-side
+    }
+  } else {
+    // Client-side: Set cookie directly
+    document.cookie = `session_token=${token}; path=/; expires=${expiresAt.toUTCString()}; ${
+      process.env.NODE_ENV === "production" ? "secure;" : ""
+    } samesite=lax;`
+  }
 }
 
 // Get the current session
 export async function getSession() {
-  const cookieStore = await getCookies()
-  const sessionToken = cookieStore.get("session_token")?.value
+  let sessionToken = null
+
+  // Try to get the session token based on environment
+  if (typeof window === "undefined") {
+    // Server-side
+    try {
+      // Try App Router method first
+      const { cookies } = await import("next/headers")
+      sessionToken = cookies().get("session_token")?.value
+    } catch (error) {
+      // If next/headers is not available, we'll handle it in the API route
+      return null
+    }
+  } else {
+    // Client-side: Parse cookies from document.cookie
+    const cookies = document.cookie.split("; ").reduce(
+      (acc, cookie) => {
+        const [name, value] = cookie.split("=")
+        acc[name] = value
+        return acc
+      },
+      {} as Record<string, string>,
+    )
+
+    sessionToken = cookies.session_token
+  }
 
   if (!sessionToken) {
     return null
   }
 
-  const session = await prisma.session.findUnique({
-    where: { token: sessionToken },
-    include: { user: true },
-  })
+  try {
+    const session = await prisma.session.findUnique({
+      where: { token: sessionToken },
+      include: { user: true },
+    })
 
-  if (!session || session.expiresAt < new Date()) {
+    if (!session || session.expiresAt < new Date()) {
+      return null
+    }
+
+    return session
+  } catch (error) {
+    console.error("Error getting session:", error)
     return null
   }
-
-  return session
 }
 
 // Logout a user
 export async function logout(): Promise<void> {
-  const cookieStore = await getCookies()
-  const sessionToken = cookieStore.get("session_token")?.value
+  const session = await getSession()
 
-  if (sessionToken) {
+  if (session) {
     // Delete session from database
     await prisma.session.delete({
-      where: { token: sessionToken },
+      where: { token: session.token },
     })
+  }
 
-    // Clear session cookie
-    cookieStore.delete("session_token")
+  // Clear session cookie based on environment
+  if (typeof window === "undefined") {
+    // Server-side
+    try {
+      const { cookies } = await import("next/headers")
+      cookies().delete("session_token")
+    } catch (error) {
+      // If next/headers is not available, we'll handle it in the API route
+      console.warn("Could not delete cookie with next/headers, falling back to API route")
+    }
+  } else {
+    // Client-side: Clear cookie
+    document.cookie = "session_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;"
   }
 }
 
