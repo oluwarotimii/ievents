@@ -8,6 +8,8 @@ import PasswordResetEmail from "@/emails/password-reset-email"
 import WelcomeEmail from "@/emails/welcome-email"
 import EventRegistrationEmail from "@/emails/event-registration-email"
 import EventCheckInEmail from "@/emails/event-check-in-email"
+import PaymentReceiptEmail from "@/emails/payment-receipt-email"
+import MassEmailTemplate from "@/emails/mass-email-template"
 import { sendTransactionalEmail } from "@/lib/brevo"
 
 // Validate email configuration
@@ -37,31 +39,17 @@ const transporter = nodemailer.createTransport({
   ...(process.env.NODE_ENV !== "production" && { debug: true }),
 })
 
-export type EmailTemplate =
-  | "verification"
-  | "password-reset"
-  | "welcome"
-  | "event-registration"
-  | "event-check-in"
-  | "custom"
-
-export interface SendEmailOptions {
-  to: string
-  subject: string
-  template: EmailTemplate
-  data: Record<string, any>
-  useApi?: boolean // Whether to use the Brevo API instead of SMTP
-  cc?: string[]
-  bcc?: string[]
-  replyTo?: string
-  attachments?: { filename: string; content: string; encoding?: string }[]
-  customHtml?: string // Only used when template is "custom"
-}
-
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as SendEmailOptions
+    const body = await request.json()
     const { to, subject, template, data, useApi = false, cc, bcc, replyTo, attachments, customHtml } = body
+
+    if (!to || !subject || !template) {
+      console.error("Missing required fields:", { to, subject, template })
+      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 })
+    }
+
+    console.log(`Processing email request: to=${to}, subject=${subject}, template=${template}, useApi=${useApi}`)
 
     // Select the appropriate email template
     let htmlContent: string
@@ -82,6 +70,12 @@ export async function POST(request: NextRequest) {
       case "event-check-in":
         htmlContent = render(EventCheckInEmail({ ...data }))
         break
+      case "payment-receipt":
+        htmlContent = render(PaymentReceiptEmail({ ...data }))
+        break
+      case "mass-email":
+        htmlContent = render(MassEmailTemplate({ ...data }))
+        break
       case "custom":
         if (!customHtml) {
           return NextResponse.json(
@@ -97,15 +91,16 @@ export async function POST(request: NextRequest) {
 
     // Use Brevo API if specified
     if (useApi) {
-      const apiResult = await sendTransactionalEmail({
+      console.log("Using Brevo API to send email")
+      const result = await sendTransactionalEmail({
         to: [{ email: to }],
         subject,
         htmlContent,
-        ...(cc && { cc: cc.map((email) => ({ email })) }),
-        ...(bcc && { bcc: bcc.map((email) => ({ email })) }),
+        ...(cc && { cc: cc.map((email: string) => ({ email })) }),
+        ...(bcc && { bcc: bcc.map((email: string) => ({ email })) }),
         ...(replyTo && { replyTo: { email: replyTo } }),
         ...(attachments && {
-          attachment: attachments.map((attachment) => ({
+          attachment: attachments.map((attachment: any) => ({
             name: attachment.filename,
             content: attachment.content,
             url: "",
@@ -113,16 +108,17 @@ export async function POST(request: NextRequest) {
         }),
       })
 
-      if (!apiResult.success) {
-        console.error("Error sending email via Brevo API:", apiResult.error)
-        return NextResponse.json({ success: false, error: apiResult.error }, { status: 500 })
+      if (!result.success) {
+        console.error("Error sending email via Brevo API:", result.error)
+        return NextResponse.json({ success: false, error: result.error }, { status: 500 })
       }
 
-      return NextResponse.json({ success: true, messageId: apiResult.data.messageId })
+      return NextResponse.json({ success: true, messageId: result.data?.messageId })
     }
 
     // Otherwise, use SMTP
     const fromEmail = process.env.EMAIL_FROM || "noreply@orionis.com"
+    console.log(`Using SMTP to send email from ${fromEmail}`)
 
     try {
       // Send the email
@@ -137,20 +133,22 @@ export async function POST(request: NextRequest) {
         attachments,
       })
 
-      console.log(`Email sent: ${info.messageId}`)
+      console.log(`Email sent via SMTP: ${info.messageId}`)
       return NextResponse.json({ success: true, messageId: info.messageId })
     } catch (emailError) {
       console.error("SMTP sending error:", emailError)
+
       // Try fallback to Brevo API if SMTP fails
+      console.log("SMTP failed, falling back to Brevo API")
       const apiResult = await sendTransactionalEmail({
         to: [{ email: to }],
         subject,
         htmlContent,
-        ...(cc && { cc: cc.map((email) => ({ email })) }),
-        ...(bcc && { bcc: bcc.map((email) => ({ email })) }),
+        ...(cc && { cc: cc.map((email: string) => ({ email })) }),
+        ...(bcc && { bcc: bcc.map((email: string) => ({ email })) }),
         ...(replyTo && { replyTo: { email: replyTo } }),
         ...(attachments && {
-          attachment: attachments.map((attachment) => ({
+          attachment: attachments.map((attachment: any) => ({
             name: attachment.filename,
             content: attachment.content,
             url: "",
@@ -177,7 +175,9 @@ export async function POST(request: NextRequest) {
 // Verify SMTP connection
 export async function GET() {
   try {
+    console.log("Verifying SMTP connection...")
     await transporter.verify()
+    console.log("SMTP connection verified successfully")
     return NextResponse.json({ success: true, message: "SMTP connection verified successfully" })
   } catch (error) {
     console.error("Email configuration error:", error)

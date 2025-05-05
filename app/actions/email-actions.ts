@@ -4,14 +4,13 @@ import { format } from "date-fns"
 import { render } from "@react-email/render"
 import prisma from "@/lib/prisma"
 import RegistrationConfirmationEmail from "@/emails/registration-confirmation"
-import PaymentReceiptEmail from "@/emails/payment-receipt-email"
 import MassEmailTemplate from "@/emails/mass-email-template"
 import { getFullShortUrl, createShortUrl } from "@/lib/url-shortener"
 import { z } from "zod"
+import { sendEmail } from "@/libs/email" // Import from libs folder
 
 /**
  * Send registration confirmation email
- * This function is commented out initially as requested
  */
 export async function sendRegistrationConfirmationEmail(responseId: number, formCode: string): Promise<boolean> {
   try {
@@ -83,20 +82,17 @@ export async function sendRegistrationConfirmationEmail(responseId: number, form
     // Render and send email
     const htmlContent = render(RegistrationConfirmationEmail(emailData))
 
-    /*
-    // Send the email - COMMENTED OUT AS REQUESTED
+    // Send the email
     const result = await sendEmail({
       to: attendeeEmail,
       subject: `Registration Confirmation: ${response.form.name}`,
-      html: htmlContent,
+      template: "custom",
+      data: {},
+      customHtml: htmlContent,
+      useApi: true, // Use API for more reliable delivery
     })
 
     return result.success
-    */
-
-    // Just log instead of sending
-    console.log(`[MOCK] Registration confirmation email would be sent to ${attendeeEmail}`)
-    return true
   } catch (error) {
     console.error("Error sending registration confirmation email:", error)
     return false
@@ -105,7 +101,6 @@ export async function sendRegistrationConfirmationEmail(responseId: number, form
 
 /**
  * Send payment receipt email
- * This function is commented out initially as requested
  */
 export async function sendPaymentReceiptEmail(transactionId: number): Promise<boolean> {
   try {
@@ -160,22 +155,16 @@ export async function sendPaymentReceiptEmail(transactionId: number): Promise<bo
       viewUrl: shortViewUrl,
     }
 
-    // Render and send email
-    const htmlContent = render(PaymentReceiptEmail(emailData))
-
-    // Send the email - UNCOMMENT THIS SECTION
-    const sendEmail = await import("./email").then((module) => module.sendEmail)
+    // Send the email
     const result = await sendEmail({
       to: attendeeEmail,
       subject: `Payment Receipt: ${transaction.response.form.name}`,
-      html: htmlContent,
+      template: "payment-receipt",
+      data: emailData,
+      useApi: true, // Use API for more reliable delivery
     })
 
     return result.success
-
-    // Just log instead of sending
-    // console.log(`[MOCK] Payment receipt email would be sent to ${attendeeEmail}`)
-    // return true
   } catch (error) {
     console.error("Error sending payment receipt email:", error)
     return false
@@ -275,12 +264,14 @@ export async function sendMassEmail(
         // Render email
         const htmlContent = render(MassEmailTemplate(massEmailData))
 
-        /*
-        // Send the email - COMMENTED OUT AS REQUESTED
+        // Send the email
         const result = await sendEmail({
           to: email,
           subject,
-          html: htmlContent,
+          template: "custom",
+          data: {},
+          customHtml: htmlContent,
+          useApi: true, // Use API for more reliable delivery
         })
 
         if (result.success) {
@@ -288,11 +279,6 @@ export async function sendMassEmail(
         } else {
           failed++
         }
-        */
-
-        // Just log instead of sending
-        console.log(`[MOCK] Mass email would be sent to ${email}`)
-        sent++
       } catch (error) {
         console.error(`Error sending mass email to response ${response.id}:`, error)
         failed++
