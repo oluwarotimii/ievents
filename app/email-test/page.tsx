@@ -21,7 +21,7 @@ export default function EmailTestPage() {
     setStatus(null)
 
     try {
-      const response = await fetch("/api/email/test", {
+      const response = await fetch("/api/email/send", {
         method: "GET",
       })
 
@@ -46,15 +46,19 @@ export default function EmailTestPage() {
     setStatus(null)
 
     try {
-      // Import the unified email service
-      const { sendUnifiedEmail } = await import("@/lib/email")
-
-      // Send the email using our unified email service
-      const result = await sendUnifiedEmail({
-        to,
-        subject,
-        customHtml: content,
+      const response = await fetch("/api/email/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to,
+          subject,
+          customHtml: content,
+        }),
       })
+
+      const result = await response.json()
 
       setStatus({
         success: result.success,

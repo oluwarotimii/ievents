@@ -1,4 +1,5 @@
-import nodemailer from "nodemailer"
+"use server"
+
 import { render } from "@react-email/render"
 import VerificationEmail from "@/emails/verification-email"
 import PasswordResetEmail from "@/emails/password-reset-email"
@@ -30,6 +31,7 @@ export interface SendEmailOptions {
   bcc?: string[]
   replyTo?: string
   attachments?: { filename: string; content: string; encoding?: string }[]
+  useApi?: boolean
 }
 
 // Render email template
@@ -58,32 +60,7 @@ function renderEmailTemplate(template: EmailTemplate, data: Record<string, any> 
   }
 }
 
-// Create a transporter
-function createTransporter() {
-  // Log SMTP configuration for debugging
-  console.log("SMTP Configuration:", {
-    host: process.env.SMTP_HOST,
-    port: process.env.SMTP_PORT,
-    secure: process.env.SMTP_SECURE === "true",
-    auth: {
-      user: process.env.SMTP_USER,
-      // Password is masked for security
-      pass: process.env.SMTP_PASSWORD ? "********" : "not set",
-    },
-  })
-
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number.parseInt(process.env.SMTP_PORT || "587"),
-    secure: process.env.SMTP_SECURE === "true",
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASSWORD,
-    },
-  })
-}
-
-// Send email using SMTP
+// Send email using Brevo API
 export async function sendEmail({
   to,
   subject,
@@ -94,60 +71,9 @@ export async function sendEmail({
   bcc,
   replyTo,
   attachments,
+  useApi = true,
 }: SendEmailOptions): Promise<{ success: boolean; messageId?: string; error?: any }> {
   console.log(`Sending email to ${to} with subject "${subject}"`)
-
-  try {
-    // Determine the HTML content
-    let html = customHtml || ""
-
-    if (template && !customHtml) {
-      html = renderEmailTemplate(template, data)
-    }
-
-    if (!html) {
-      throw new Error("No HTML content provided for email")
-    }
-
-    // Create transporter
-    const transporter = createTransporter()
-
-    // Send email
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || "noreply@example.com",
-      to,
-      cc,
-      bcc,
-      subject,
-      html,
-      replyTo,
-      attachments,
-    })
-
-    console.log(`Email sent successfully: ${info.messageId}`)
-    return { success: true, messageId: info.messageId }
-  } catch (error) {
-    console.error("Error sending email:", error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    }
-  }
-}
-
-// Send email using Brevo API
-export async function sendEmailWithBrevo({
-  to,
-  subject,
-  template,
-  data = {},
-  customHtml,
-  cc,
-  bcc,
-  replyTo,
-  attachments,
-}: SendEmailOptions): Promise<{ success: boolean; messageId?: string; error?: any }> {
-  console.log(`Sending email with Brevo API to ${to} with subject "${subject}"`)
 
   try {
     // Determine the HTML content
@@ -171,7 +97,7 @@ export async function sendEmailWithBrevo({
     const emailData = {
       sender: {
         name: "Event Form Builder",
-        email: process.env.EMAIL_FROM?.replace(/.*<(.*)>.*/, "$1") || "noreply@example.com",
+        email: process.env.EMAIL_FROM || "noreply@example.com",
       },
       to: [{ email: to }],
       subject,
@@ -229,7 +155,7 @@ export async function sendEmailWithBrevo({
 
     return { success: true, messageId: result.messageId }
   } catch (error) {
-    console.error("Error sending email with Brevo:", error)
+    console.error("Error sending email:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
@@ -237,25 +163,36 @@ export async function sendEmailWithBrevo({
   }
 }
 
-// Main function to send email (tries Brevo first, falls back to SMTP)
-export async function sendUnifiedEmail(
-  options: SendEmailOptions,
-): Promise<{ success: boolean; messageId?: string; error?: any }> {
-  console.log(`Sending unified email to ${options.to}`)
-
-  // Try Brevo API first
+// Verify email configuration
+export async function verifyEmailConfig(): Promise<{ success: boolean; error?: any }> {
   try {
-    const brevoResult = await sendEmailWithBrevo(options)
-
-    if (brevoResult.success) {
-      return brevoResult
+    // Check if Brevo API key is set
+    const apiKey = process.env.BREVO_API_KEY
+    if (!apiKey) {
+      return { success: false, error: "BREVO_API_KEY is not set" }
     }
 
-    console.log("Brevo API failed, falling back to SMTP:", brevoResult.error)
-  } catch (error) {
-    console.error("Error with Brevo API, falling back to SMTP:", error)
-  }
+    // Test Brevo API connection
+    const response = await fetch("https://api.brevo.com/v3/account", {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "api-key": apiKey,
+      },
+    })
 
-  // Fall back to SMTP
-  return sendEmail(options)
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`Brevo API error (${response.status}):`, errorText)
+      return { success: false, error: `API error: ${response.status}` }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error verifying email config:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
 }

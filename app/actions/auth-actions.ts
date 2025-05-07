@@ -3,6 +3,9 @@
 import { redirect } from "next/navigation"
 import { z } from "zod"
 import prisma from "@/lib/prisma"
+import { createHash, randomBytes } from "crypto"
+import { db } from "@/lib/db"
+import { sendEmail } from "@/lib/email"
 
 const registerSchema = z.object({
   username: z.string().min(3).max(50),
@@ -256,73 +259,56 @@ export async function logoutUser() {
   }
 }
 
-export async function resendVerificationEmail() {
+export async function resendVerificationEmail(userId: string) {
   try {
-    console.log("🔄 Resending verification email")
-    const authModule = await import("@/lib/auth")
-    const session = await authModule.getSession()
-
-    if (!session) {
-      console.error("❌ No active session found")
-      return {
-        success: false,
-        message: "No active session found. Please log in again.",
-      }
-    }
-
-    const user = await prisma.user.findFirst({
-      where: {
-        id: session.userId,
-      },
+    // Get user
+    const user = await db.user.findUnique({
+      where: { id: userId },
     })
 
     if (!user) {
-      console.error("❌ User not found")
-      return {
-        success: false,
-        message: "User not found.",
-      }
+      return { success: false, message: "User not found" }
     }
 
-    console.log("👤 Attempting to resend verification email to:", user.email)
+    if (user.emailVerified) {
+      return { success: false, message: "Email already verified" }
+    }
 
-    // Generate a verification token
-    const token = await authModule.generateVerificationToken(user.id)
+    // Generate verification token
+    const token = randomBytes(32).toString("hex")
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
 
-    // Create verification URL
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-    const verificationUrl = `${baseUrl}/verify-email/${token}`
-
-    // Import the unified email service
-    const { sendUnifiedEmail } = await import("@/lib/email")
-
-    // Send the email using our unified email service
-    const result = await sendUnifiedEmail({
-      to: user.email,
-      subject: "Verify Your Email Address",
-      template: "verification",
+    // Save token
+    await db.verificationToken.create({
       data: {
-        username: user.username,
-        verificationUrl,
+        identifier: user.email,
+        token: createHash("sha256").update(token).digest("hex"),
+        expires,
       },
     })
 
-    if (!result.success) {
-      console.error("❌ Failed to send verification email:", result.error)
-      return {
-        success: false,
-        message: "Failed to send verification email. Please try again.",
-      }
+    // Send verification email
+    const verificationUrl = `${process.env.NEXTAUTH_URL}/verify-email/${token}`
+
+    const emailResult = await sendEmail({
+      to: user.email,
+      subject: "Verify your email address",
+      template: "verification",
+      data: {
+        verificationUrl,
+        name: user.name || user.email,
+      },
+    })
+
+    if (!emailResult.success) {
+      console.error("Failed to send verification email:", emailResult.error)
+      return { success: false, message: "Failed to send verification email" }
     }
 
-    console.log("✅ Verification email sent successfully")
-    return { success: true }
+    return { success: true, message: "Verification email sent" }
   } catch (error) {
-    console.error("❌ Resend verification error:", error)
-    return {
-      success: false,
-      message: "An error occurred while resending the verification email.",
-    }
+    console.error("Error resending verification email:", error)
+    return { success: false, message: "An error occurred" }
   }
 }
 
