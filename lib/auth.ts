@@ -210,7 +210,7 @@ export async function generateVerificationToken(userId: number): Promise<string>
   return token
 }
 
-// Send verification email
+// Send verification email - UPDATED to use the working email service
 export async function sendVerificationEmail(user: { id: number; email: string; username: string }): Promise<boolean> {
   try {
     console.log("🚀 SENDING VERIFICATION EMAIL")
@@ -225,7 +225,7 @@ export async function sendVerificationEmail(user: { id: number; email: string; u
     const verificationUrl = `${baseUrl}/verify-email/${token}`
     console.log("🔗 Verification URL:", verificationUrl)
 
-    // Send the email using our email service
+    // Use the working email service
     const result = await sendEmailFromServer({
       to: user.email,
       subject: "Verify Your Email Address",
@@ -236,6 +236,8 @@ export async function sendVerificationEmail(user: { id: number; email: string; u
       },
       useApi: true, // Force using API for reliability
     })
+
+    console.log("📧 Email sending result:", result)
 
     if (!result.success) {
       console.error("❌ Failed to send verification email:", result.error)
@@ -287,7 +289,7 @@ export async function verifyEmail(token: string): Promise<boolean> {
       },
     })
 
-    // Send welcome email
+    // Send welcome email - UPDATED to use the working email service
     try {
       await sendEmailFromServer({
         to: verificationToken.user.email,
@@ -310,7 +312,7 @@ export async function verifyEmail(token: string): Promise<boolean> {
   }
 }
 
-// Send password reset email
+// Send password reset email - UPDATED to use the working email service
 export async function sendPasswordResetEmail(email: string): Promise<boolean> {
   try {
     // Find user by email
@@ -339,7 +341,7 @@ export async function sendPasswordResetEmail(email: string): Promise<boolean> {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
     const resetUrl = `${baseUrl}/reset-password/${token}`
 
-    // Send the email
+    // Use the working email service
     const result = await sendEmailFromServer({
       to: user.email,
       subject: "Reset Your Password",

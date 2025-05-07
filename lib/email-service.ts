@@ -130,6 +130,7 @@ export async function sendEmail({
 
 /**
  * Sends an email directly from the server (for server actions)
+ * This is the key function that needs to be used consistently across all email sending functions
  */
 export async function sendEmailFromServer({
   to,
@@ -146,8 +147,10 @@ export async function sendEmailFromServer({
   try {
     console.log(`Sending ${template} email from server to ${to}`)
 
+    // Get the base URL for the API
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
 
+    // Make a direct request to the email API
     const response = await fetch(`${baseUrl}/api/email/send`, {
       method: "POST",
       headers: {

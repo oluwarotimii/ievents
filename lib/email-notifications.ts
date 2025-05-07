@@ -5,7 +5,7 @@ import RegistrationConfirmationEmail from "@/emails/registration-confirmation"
 import PaymentReceiptEmail from "@/emails/payment-receipt-email"
 import MassEmailTemplate from "@/emails/mass-email-template"
 import { getFullShortUrl, createShortUrl } from "./url-shortener"
-import { sendEmail } from "./email"
+import { sendEmailFromServer } from "./email-service"
 
 /**
  * Send registration confirmation email
@@ -77,17 +77,25 @@ export async function sendRegistrationConfirmationEmail(responseId: number, form
       viewUrl: shortViewUrl,
     }
 
-    // Render and send email
+    // Render email content
     const htmlContent = render(RegistrationConfirmationEmail(emailData))
 
-    // Send the email
-    const result = await sendEmail({
+    // Use the working email service
+    const result = await sendEmailFromServer({
       to: attendeeEmail,
       subject: `Registration Confirmation: ${response.form.name}`,
-      html: htmlContent,
+      template: "custom", // Use custom template with our pre-rendered HTML
+      data: {},
+      customHtml: htmlContent,
+      useApi: true,
     })
 
-    return result.success
+    if (!result.success) {
+      console.error("Failed to send registration confirmation email:", result.error)
+      return false
+    }
+
+    return true
   } catch (error) {
     console.error("Error sending registration confirmation email:", error)
     return false
@@ -152,17 +160,25 @@ export async function sendPaymentReceiptEmail(transactionId: number): Promise<bo
       platformFee: transaction.platformFee || 0,
     }
 
-    // Render and send email
+    // Render email content
     const htmlContent = render(PaymentReceiptEmail(emailData))
 
-    // Send the email
-    const result = await sendEmail({
+    // Use the working email service
+    const result = await sendEmailFromServer({
       to: attendeeEmail,
       subject: `Payment Receipt: ${transaction.response.form.name}`,
-      html: htmlContent,
+      template: "custom", // Use custom template with our pre-rendered HTML
+      data: {},
+      customHtml: htmlContent,
+      useApi: true,
     })
 
-    return result.success
+    if (!result.success) {
+      console.error("Failed to send payment receipt email:", result.error)
+      return false
+    }
+
+    return true
   } catch (error) {
     console.error("Error sending payment receipt email:", error)
     return false
@@ -259,19 +275,23 @@ export async function sendMassEmail(
           eventCode: formCode,
         }
 
-        // Render email
+        // Render email content
         const htmlContent = render(MassEmailTemplate(massEmailData))
 
-        // Send the email
-        const result = await sendEmail({
+        // Use the working email service
+        const result = await sendEmailFromServer({
           to: email,
           subject,
-          html: htmlContent,
+          template: "custom", // Use custom template with our pre-rendered HTML
+          data: {},
+          customHtml: htmlContent,
+          useApi: true,
         })
 
         if (result.success) {
           sent++
         } else {
+          console.error(`Failed to send mass email to ${email}:`, result.error)
           failed++
         }
       } catch (error) {
@@ -332,11 +352,13 @@ export async function sendSubscriptionReceiptEmail(paymentId: number): Promise<b
     // Get plan name
     const planName = getPlanName(payment.subscription.planType)
 
-    // Send email
-    const result = await sendEmail({
+    // Use the working email service
+    const result = await sendEmailFromServer({
       to: email,
       subject: `Subscription Payment Receipt: ${planName} Plan`,
-      html: `
+      template: "custom",
+      data: {},
+      customHtml: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2>Subscription Payment Receipt</h2>
           <p>Hello ${name},</p>
@@ -352,9 +374,15 @@ export async function sendSubscriptionReceiptEmail(paymentId: number): Promise<b
           <p>Thank you for using our platform!</p>
         </div>
       `,
+      useApi: true,
     })
 
-    return result.success
+    if (!result.success) {
+      console.error("Failed to send subscription receipt email:", result.error)
+      return false
+    }
+
+    return true
   } catch (error) {
     console.error("Error sending subscription receipt email:", error)
     return false
