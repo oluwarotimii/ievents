@@ -190,28 +190,42 @@ export async function getUserFromRequest(request: Request) {
   return session.user
 }
 
+// Generate a verification token
+export async function generateVerificationToken(userId: number): Promise<string> {
+  console.log("Generating verification token for user:", userId)
+
+  // Generate a random token
+  const token = nanoid(32)
+
+  // Store token in database
+  await prisma.verificationToken.create({
+    data: {
+      userId,
+      token,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+    },
+  })
+
+  console.log("Verification token generated successfully")
+  return token
+}
+
 // Send verification email
 export async function sendVerificationEmail(user: { id: number; email: string; username: string }): Promise<boolean> {
   try {
-    console.log("Sending verification email to:", user.email)
+    console.log("🚀 SENDING VERIFICATION EMAIL")
+    console.log("👤 User:", user.id, user.email)
 
     // Generate a verification token
-    const token = nanoid(32)
-
-    // Store token in database
-    await prisma.verificationToken.create({
-      data: {
-        userId: user.id,
-        token,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-      },
-    })
+    const token = await generateVerificationToken(user.id)
+    console.log("🔑 Generated verification token")
 
     // Create a verification URL
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
     const verificationUrl = `${baseUrl}/verify-email/${token}`
+    console.log("🔗 Verification URL:", verificationUrl)
 
-    // Send the email using our improved email service
+    // Send the email using our email service
     const result = await sendEmailFromServer({
       to: user.email,
       subject: "Verify Your Email Address",
@@ -224,14 +238,14 @@ export async function sendVerificationEmail(user: { id: number; email: string; u
     })
 
     if (!result.success) {
-      console.error("Failed to send verification email:", result.error)
+      console.error("❌ Failed to send verification email:", result.error)
       return false
     }
 
-    console.log("Verification email sent successfully")
+    console.log("✅ Verification email sent successfully")
     return true
   } catch (error) {
-    console.error("Error sending verification email:", error)
+    console.error("❌ Error sending verification email:", error)
     return false
   }
 }

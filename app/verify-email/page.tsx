@@ -5,14 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { LoadingButton } from "@/components/ui/loading-button"
 import { useToast } from "@/hooks/use-toast"
 import { resendVerificationEmail, isEmailVerified } from "@/app/actions/auth-actions"
-import { AlertCircle, CheckCircle, Mail } from "lucide-react"
+import { AlertCircle, CheckCircle, Mail, RefreshCw, LogOut } from "lucide-react"
 
 export default function VerifyEmailPage() {
-  const [loading, setLoading] = useState(false)
-  const [resending, setResending] = useState(false)
+  const [isResending, setIsResending] = useState(false)
+  const [isChecking, setIsChecking] = useState(true)
   const [verified, setVerified] = useState(false)
   const [countdown, setCountdown] = useState(0)
   const router = useRouter()
@@ -23,6 +22,7 @@ export default function VerifyEmailPage() {
   useEffect(() => {
     const checkVerification = async () => {
       try {
+        setIsChecking(true)
         const verified = await isEmailVerified()
         setVerified(verified)
 
@@ -40,7 +40,7 @@ export default function VerifyEmailPage() {
       } catch (error) {
         console.error("Error checking verification:", error)
       } finally {
-        setLoading(false)
+        setIsChecking(false)
       }
     }
 
@@ -48,9 +48,9 @@ export default function VerifyEmailPage() {
   }, [router, callbackUrl, toast])
 
   const handleResendEmail = async () => {
-    if (countdown > 0) return
+    if (countdown > 0 || isResending) return
 
-    setResending(true)
+    setIsResending(true)
     try {
       const result = await resendVerificationEmail()
 
@@ -86,11 +86,20 @@ export default function VerifyEmailPage() {
         variant: "destructive",
       })
     } finally {
-      setResending(false)
+      setIsResending(false)
     }
   }
 
-  if (loading) {
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" })
+      router.push("/login")
+    } catch (error) {
+      console.error("Error logging out:", error)
+    }
+  }
+
+  if (isChecking) {
     return (
       <div className="container mx-auto py-16 px-4">
         <Card className="w-full max-w-md mx-auto">
@@ -131,7 +140,7 @@ export default function VerifyEmailPage() {
     <div className="container mx-auto py-16 px-4">
       <Card className="w-full max-w-md mx-auto">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-primary/10">
+          <div className="mx-auto mb-4 bg-primary/10 p-3 rounded-full w-12 h-12 flex items-center justify-center">
             <Mail className="h-6 w-6 text-primary" />
           </div>
           <CardTitle className="text-2xl">Verify Your Email</CardTitle>
@@ -159,18 +168,22 @@ export default function VerifyEmailPage() {
             </ul>
           </div>
         </CardContent>
-        <CardFooter className="flex flex-col gap-4">
-          <LoadingButton
-            onClick={handleResendEmail}
-            disabled={resending || countdown > 0}
-            loading={resending}
-            className="w-full"
-          >
-            {countdown > 0 ? `Resend Email (${countdown}s)` : "Resend Verification Email"}
-          </LoadingButton>
-
-          <Button variant="outline" onClick={() => router.push("/dashboard")} className="w-full">
-            I'll Verify Later
+        <CardFooter className="flex flex-col space-y-2">
+          <Button onClick={handleResendEmail} className="w-full" disabled={isResending || countdown > 0}>
+            {isResending ? (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                Sending...
+              </>
+            ) : countdown > 0 ? (
+              `Resend Email (${countdown}s)`
+            ) : (
+              "Resend Verification Email"
+            )}
+          </Button>
+          <Button variant="outline" onClick={handleLogout} className="w-full">
+            <LogOut className="h-4 w-4 mr-2" />
+            Logout
           </Button>
         </CardFooter>
       </Card>
