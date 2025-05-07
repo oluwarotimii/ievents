@@ -27,6 +27,7 @@ import { logoutUser } from "@/app/actions/auth-actions"
 
 export default function Header() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [isEmailVerified, setIsEmailVerified] = useState(false)
   const [username, setUsername] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const pathname = usePathname()
@@ -41,17 +42,32 @@ export default function Header() {
           const userData = await response.json()
           setIsLoggedIn(true)
           setUsername(userData.username || "User")
+          setIsEmailVerified(userData.emailVerified || false)
+
+          // If user is logged in but email is not verified, redirect to verification page
+          // unless they're already on the verification page
+          if (
+            isLoggedIn &&
+            !userData.emailVerified &&
+            !pathname.includes("/verify-email") &&
+            !pathname.includes("/login") &&
+            !pathname.includes("/register")
+          ) {
+            router.push("/verify-email")
+          }
 
           // If user is logged in and on homepage, redirect to dashboard
-          if (pathname === "/" && isLoggedIn) {
+          if (pathname === "/" && isLoggedIn && userData.emailVerified) {
             router.push("/dashboard")
           }
         } else {
           setIsLoggedIn(false)
+          setIsEmailVerified(false)
         }
       } catch (error) {
         console.error("Error checking authentication:", error)
         setIsLoggedIn(false)
+        setIsEmailVerified(false)
       } finally {
         setIsLoading(false)
       }
@@ -62,6 +78,11 @@ export default function Header() {
 
   // Don't show header on login/register pages
   if (pathname === "/login" || pathname === "/register" || pathname === "/forgot-password") {
+    return null
+  }
+
+  // Don't show header for unverified users except on verification page
+  if (isLoggedIn && !isEmailVerified && !pathname.includes("/verify-email")) {
     return null
   }
 
@@ -140,7 +161,7 @@ export default function Header() {
                 {mobileMenuItems.map((item) => {
                   if (
                     item.showWhen === "always" ||
-                    (item.showWhen === "loggedIn" && isLoggedIn) ||
+                    (item.showWhen === "loggedIn" && isLoggedIn && isEmailVerified) ||
                     (item.showWhen === "loggedOut" && !isLoggedIn)
                   ) {
                     return (
@@ -188,7 +209,7 @@ export default function Header() {
             </SheetContent>
           </Sheet>
 
-          <Link href={isLoggedIn ? "/dashboard" : "/"} className="flex items-center space-x-2">
+          <Link href={isLoggedIn && isEmailVerified ? "/dashboard" : "/"} className="flex items-center space-x-2">
             <span className="font-bold text-xl">EventFlow</span>
           </Link>
 
@@ -203,7 +224,7 @@ export default function Header() {
                 Home
               </Link>
             )}
-            {isLoggedIn && (
+            {isLoggedIn && isEmailVerified && (
               <>
                 <Link
                   href="/dashboard"
@@ -235,7 +256,7 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-2">
-          {isLoggedIn ? (
+          {isLoggedIn && isEmailVerified ? (
             <>
               <Button asChild variant="outline" className="hidden md:flex">
                 <Link href="/create">

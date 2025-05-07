@@ -2,96 +2,104 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 // Define public routes that don't require authentication
-const publicRoutes = ["/", "/login", "/register", "/forgot-password", "/reset-password", "/verify-email", "/api/auth"]
+const publicRoutes = [
+  "/",
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
+  "/pricing",
+  "/api/auth/session",
+  "/api/user",
+]
 
 // Define routes that require authentication but not email verification
 const authRoutes = ["/verify-email"]
 
-// Define routes that require email verification
-const verifiedRoutes = [
-  "/dashboard",
-  "/create",
-  "/responses",
-  "/analytics",
-  "/qr-codes",
-  "/manual-check-in",
-  "/email-manager",
-  "/subscription",
-  "/payment-settings",
-  "/transactions",
-]
+// Check if a path matches any of the patterns
+const matchesPattern = (path: string, patterns: string[]) => {
+  return patterns.some((pattern) => {
+    if (pattern.endsWith("*")) {
+      return path.startsWith(pattern.slice(0, -1))
+    }
+    return path === pattern
+  })
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Check if the route is public
-  if (publicRoutes.some((route) => pathname.startsWith(route))) {
+  // Skip middleware for static files and API routes except specific ones
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon.ico") ||
+    (pathname.startsWith("/api") && !pathname.startsWith("/api/auth") && !pathname.startsWith("/api/user"))
+  ) {
     return NextResponse.next()
   }
 
-  // Get the session token from the cookies
+  // Check if the route is public
+  const isPublicRoute =
+    matchesPattern(pathname, publicRoutes) ||
+    pathname.startsWith("/reset-password/") ||
+    pathname.startsWith("/verify-email/")
+
+  if (isPublicRoute) {
+    return NextResponse.next()
+  }
+
+  // Get session token from cookies
   const sessionToken = request.cookies.get("session_token")?.value
 
   // If no session token, redirect to login
   if (!sessionToken) {
     const url = new URL("/login", request.url)
-    url.searchParams.set("callbackUrl", encodeURI(request.url))
+    url.searchParams.set("callbackUrl", pathname)
     return NextResponse.redirect(url)
   }
 
-  // For API routes, return a 401 response instead of redirecting
-  if (pathname.startsWith("/api/")) {
-    if (!sessionToken) {
-      return new NextResponse(JSON.stringify({ success: false, message: "Authentication required" }), {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      })
-    }
-    return NextResponse.next()
-  }
+  // Check if user is authenticated and email is verified
+  try {
+    const response = await fetch(`${request.nextUrl.origin}/api/user`, {
+      headers: {
+        cookie: `session_token=${sessionToken}`,
+      },
+    })
 
-  // For routes that require email verification
-  if (verifiedRoutes.some((route) => pathname.startsWith(route))) {
-    // Check if email is verified by making a request to the API
-    try {
-      const response = await fetch(new URL("/api/auth/user", request.url), {
-        headers: {
-          cookie: `session_token=${sessionToken}`,
-        },
-      })
-
-      if (!response.ok) {
-        const url = new URL("/login", request.url)
-        return NextResponse.redirect(url)
-      }
-
-      const user = await response.json()
-
-      if (!user.emailVerified) {
-        const url = new URL("/verify-email", request.url)
-        url.searchParams.set("callbackUrl", encodeURI(request.url))
-        return NextResponse.redirect(url)
-      }
-    } catch (error) {
-      console.error("Error checking email verification:", error)
-      // If there's an error, redirect to login
+    if (!response.ok) {
+      // If not authenticated, redirect to login
       const url = new URL("/login", request.url)
+      url.searchParams.set("callbackUrl", pathname)
       return NextResponse.redirect(url)
     }
-  }
 
-  return NextResponse.next()
+    const userData = await response.json()
+
+    // If email is not verified and the route requires verification
+    if (!userData.emailVerified && !matchesPattern(pathname, authRoutes)) {
+      return NextResponse.redirect(new URL("/verify-email", request.url))
+    }
+
+    return NextResponse.next()
+  } catch (error) {
+    console.error("Middleware error:", error)
+    // On error, redirect to login
+    const url = new URL("/login", request.url)
+    url.searchParams.set("callbackUrl", pathname)
+    return NextResponse.redirect(url)
+  }
 }
 
+// Configure the middleware to run on specific paths
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
+     * Match all request paths except:
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public (public files)
      */
-    "/((?!_next/static|_next/image|favicon.ico|public).*)",
+    "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 }

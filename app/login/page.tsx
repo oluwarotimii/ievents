@@ -1,198 +1,270 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
+import { z } from "zod"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useToast } from "@/hooks/use-toast"
-import { loginUser, registerUser } from "../actions/auth-actions"
-import { AlertCircle, Loader2 } from "lucide-react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AlertCircle } from "lucide-react"
+import { loginUser, registerUser } from "@/app/actions/auth-actions"
+
+// Login form schema
+const loginSchema = z.object({
+  email: z.string().email({ message: "Please enter a valid email address" }),
+  password: z.string().min(6, { message: "Password must be at least 6 characters" }),
+})
+
+// Register form schema with confirm password
+const registerSchema = z
+  .object({
+    name: z.string().min(2, { message: "Name must be at least 2 characters" }),
+    email: z.string().email({ message: "Please enter a valid email address" }),
+    password: z.string().min(6, { message: "Password must be at least 6 characters" }),
+    confirmPassword: z.string().min(6, { message: "Password must be at least 6 characters" }),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  })
 
 export default function LoginPage() {
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { toast } = useToast()
-
-  // Check for callbackUrl
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard"
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState("login")
+  const [registerSuccess, setRegisterSuccess] = useState(false)
 
-  useEffect(() => {
-    // Check for verification success message
-    const verified = searchParams.get("verified")
-    if (verified === "true") {
-      toast({
-        title: "Email Verified",
-        description: "Your email has been verified successfully. You can now log in.",
-      })
-    }
+  // Login form
+  const loginForm = useForm<z.infer<typeof loginSchema>>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  })
 
-    // Check for error message in URL
-    const errorMsg = searchParams.get("error")
-    if (errorMsg) {
-      setError(decodeURIComponent(errorMsg))
-    }
-  }, [searchParams, toast])
+  // Register form
+  const registerForm = useForm<z.infer<typeof registerSchema>>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+  })
 
-  const handleLogin = async (formData: FormData) => {
-    setIsLoading(true)
+  // Handle login
+  const onLogin = async (data: z.infer<typeof loginSchema>) => {
+    setLoading(true)
     setError(null)
 
     try {
+      const formData = new FormData()
+      formData.append("username", data.email)
+      formData.append("password", data.password)
+
       const result = await loginUser(formData)
 
       if (result.success) {
-        toast({
-          title: "Login Successful",
-          description: "You have been logged in successfully.",
-        })
-
-        // Force a hard navigation to the dashboard
-        window.location.href = callbackUrl
+        if (!result.emailVerified) {
+          // Redirect to email verification page if email is not verified
+          router.push("/verify-email")
+        } else {
+          router.push(callbackUrl)
+        }
+        router.refresh()
       } else {
-        setError(result.message)
-        setIsLoading(false)
+        setError(result.message || "Login failed")
       }
     } catch (error) {
-      console.error("Login error:", error)
-      setError("An unexpected error occurred. Please try again.")
-      setIsLoading(false)
+      setError("An unexpected error occurred")
+      console.error(error)
+    } finally {
+      setLoading(false)
     }
   }
 
-  const handleRegister = async (formData: FormData) => {
-    setIsLoading(true)
+  // Handle register
+  const onRegister = async (data: z.infer<typeof registerSchema>) => {
+    setLoading(true)
     setError(null)
 
     try {
+      const formData = new FormData()
+      formData.append("username", data.name)
+      formData.append("email", data.email)
+      formData.append("password", data.password)
+
       const result = await registerUser(formData)
 
       if (result.success) {
-        toast({
-          title: "Registration Successful",
-          description: "Your account has been created. Please verify your email.",
-        })
+        setRegisterSuccess(true)
+        setActiveTab("login")
+        registerForm.reset()
 
-        // Force a hard navigation to verify-email page
-        window.location.href = "/verify-email"
+        // Redirect to email verification page
+        router.push("/verify-email")
       } else {
-        setError(result.message)
-        setIsLoading(false)
+        setError(result.message || "Registration failed")
       }
     } catch (error) {
-      console.error("Registration error:", error)
-      setError("An unexpected error occurred. Please try again.")
-      setIsLoading(false)
+      setError("An unexpected error occurred")
+      console.error(error)
+    } finally {
+      setLoading(false)
     }
   }
 
   return (
-    <div className="container mx-auto py-16 px-4">
-      <Card className="w-full max-w-md mx-auto">
-        <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold">Event Form Builder</CardTitle>
-          <CardDescription>Login or create an account to manage your event forms</CardDescription>
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl font-bold">Event Form Builder</CardTitle>
+          <CardDescription>Enter your credentials to access your account</CardDescription>
         </CardHeader>
         <CardContent>
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
               <TabsTrigger value="login">Login</TabsTrigger>
               <TabsTrigger value="register">Register</TabsTrigger>
             </TabsList>
 
             <TabsContent value="login">
-              <form action={handleLogin} className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="login-username">Username or Email</Label>
-                  <Input id="login-username" name="username" placeholder="Enter your username or email" required />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="login-password">Password</Label>
-                    <Button variant="link" className="p-0 h-auto" asChild>
-                      <Link href="/forgot-password">Forgot password?</Link>
-                    </Button>
-                  </div>
-                  <Input
-                    id="login-password"
-                    name="password"
-                    type="password"
-                    placeholder="Enter your password"
-                    required
+              {registerSuccess && (
+                <Alert className="mb-4 bg-green-50 text-green-800 border-green-200">
+                  <AlertDescription>
+                    Registration successful! Please check your email to verify your account.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <Form {...loginForm}>
+                <form onSubmit={loginForm.handleSubmit(onLogin)} className="space-y-4">
+                  <FormField
+                    control={loginForm.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email</FormLabel>
+                        <FormControl>
+                          <Input placeholder="email@example.com" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Logging in...
-                    </>
-                  ) : (
-                    "Login"
+                  <FormField
+                    control={loginForm.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Password</FormLabel>
+                        <FormControl>
+                          <Input type="password" placeholder="••••••••" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="text-sm">
+                    <Link href="/forgot-password" className="text-blue-600 hover:underline">
+                      Forgot your password?
+                    </Link>
+                  </div>
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
                   )}
-                </Button>
-              </form>
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? "Logging in..." : "Login"}
+                  </Button>
+                </form>
+              </Form>
             </TabsContent>
 
             <TabsContent value="register">
-              <form action={handleRegister} className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="register-username">Username</Label>
-                  <Input id="register-username" name="username" placeholder="Choose a username" required />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="register-email">Email</Label>
-                  <Input
-                    id="register-email"
+              <Form {...registerForm}>
+                <form onSubmit={registerForm.handleSubmit(onRegister)} className="space-y-4">
+                  <FormField
+                    control={registerForm.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Name</FormLabel>
+                        <FormControl>
+                          <Input placeholder="John Doe" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={registerForm.control}
                     name="email"
-                    type="email"
-                    placeholder="Enter your email address"
-                    required
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email</FormLabel>
+                        <FormControl>
+                          <Input placeholder="email@example.com" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="register-password">Password</Label>
-                  <Input
-                    id="register-password"
+                  <FormField
+                    control={registerForm.control}
                     name="password"
-                    type="password"
-                    placeholder="Create a password (min. 8 characters)"
-                    required
-                    minLength={8}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Password</FormLabel>
+                        <FormControl>
+                          <Input type="password" placeholder="••••••••" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating account...
-                    </>
-                  ) : (
-                    "Create Account"
+                  <FormField
+                    control={registerForm.control}
+                    name="confirmPassword"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Confirm Password</FormLabel>
+                        <FormControl>
+                          <Input type="password" placeholder="••••••••" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
                   )}
-                </Button>
-              </form>
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? "Registering..." : "Register"}
+                  </Button>
+                </form>
+              </Form>
             </TabsContent>
           </Tabs>
         </CardContent>
         <CardFooter className="flex justify-center">
-          <Button variant="link" asChild>
-            <Link href="/">Back to Home</Link>
-          </Button>
+          <p className="text-sm text-gray-500">By continuing, you agree to our Terms of Service and Privacy Policy.</p>
         </CardFooter>
       </Card>
     </div>
