@@ -15,7 +15,7 @@ export default function VerificationEmail({ username, verificationUrl }: Verific
           <Text style={titleStyle}>Verify Your Email Address</Text>
           <Text style={paragraphStyle}>Hi {username},</Text>
           <Text style={paragraphStyle}>
-            Thank you for signing up for Event Form Builder. To complete your registration and verify your email
+            Thank you for signing up for Eventflow. To complete your registration and verify your email
             address, please click the button below:
           </Text>
           <Link href={verificationUrl} style={buttonStyle}>

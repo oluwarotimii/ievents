@@ -52,6 +52,17 @@ export async function getCurrentUser() {
   }
 }
 
+// Check if email is verified
+export async function isEmailVerified() {
+  try {
+    const authModule = await import("@/lib/auth")
+    return authModule.isEmailVerified()
+  } catch (error) {
+    console.error("Error checking email verification:", error)
+    return false
+  }
+}
+
 // Get subscription info for the current user
 export async function getCurrentUserSubscriptionInfo() {
   const user = await getCurrentUser()
@@ -137,13 +148,30 @@ export async function registerUser(formData: FormData) {
       },
     })
 
+    console.log("User created successfully:", user.id)
+
     // Send verification email
-    await authModule.sendVerificationEmail(user)
+    try {
+      console.log("Sending verification email to:", email)
+      const emailSent = await authModule.sendVerificationEmail(user)
+
+      if (!emailSent) {
+        console.error("Failed to send verification email")
+      } else {
+        console.log("Verification email sent successfully")
+      }
+    } catch (emailError) {
+      console.error("Error sending verification email:", emailError)
+      // Continue with registration even if email fails
+    }
 
     // Create session
     await authModule.createSession(user.id)
 
-    return { success: true }
+    return {
+      success: true,
+      requireVerification: true,
+    }
   } catch (error) {
     console.error("Registration error:", error)
     return {
@@ -206,7 +234,7 @@ export async function loginUser(formData: FormData) {
 
     return {
       success: true,
-      emailVerified: true, // Always return true
+      emailVerified: user.emailVerified,
     }
   } catch (error) {
     console.error("Login error:", error)
@@ -233,19 +261,27 @@ export async function resendVerificationEmail() {
     const authModule = await import("@/lib/auth")
     const session = await authModule.getSession()
 
+    if (!session) {
+      return {
+        success: false,
+        message: "No active session found. Please log in again.",
+      }
+    }
+
     const user = await prisma.user.findFirst({
       where: {
-        id: session?.userId,
-        emailVerified: false,
+        id: session.userId,
       },
     })
 
     if (!user) {
       return {
         success: false,
-        message: "User not found or already verified.",
+        message: "User not found.",
       }
     }
+
+    console.log("Attempting to resend verification email to:", user.email)
 
     const emailSent = await authModule.sendVerificationEmail(user)
 
@@ -302,6 +338,7 @@ export async function forgotPassword(formData: FormData) {
     }
 
     const { email } = validatedFields.data
+    console.log("Processing forgot password request for:", email)
 
     const authModule = await import("@/lib/auth")
     await authModule.sendPasswordResetEmail(email)
@@ -359,5 +396,18 @@ export async function resetUserPassword(token: string, formData: FormData) {
       success: false,
       message: "An error occurred during password reset.",
     }
+  }
+}
+
+// Require verified email for protected actions
+export async function requireVerifiedEmail() {
+  try {
+    const authModule = await import("@/lib/auth")
+    return authModule.requireVerifiedEmail()
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Email verification required")) {
+      redirect("/verify-email")
+    }
+    throw error
   }
 }

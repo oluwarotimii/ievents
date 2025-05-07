@@ -1,20 +1,56 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { LoadingButton } from "@/components/ui/loading-button"
 import { useToast } from "@/hooks/use-toast"
-import { resendVerificationEmail, logoutUser } from "../actions/auth-actions"
-import { MailCheck, RefreshCw, LogOut } from "lucide-react"
+import { resendVerificationEmail, isEmailVerified } from "@/app/actions/auth-actions"
+import { AlertCircle, CheckCircle, Mail } from "lucide-react"
 
 export default function VerifyEmailPage() {
-  const [isResending, setIsResending] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [verified, setVerified] = useState(false)
+  const [countdown, setCountdown] = useState(0)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const callbackUrl = searchParams?.get("callbackUrl") || "/dashboard"
   const { toast } = useToast()
 
+  useEffect(() => {
+    const checkVerification = async () => {
+      try {
+        const verified = await isEmailVerified()
+        setVerified(verified)
+
+        if (verified) {
+          toast({
+            title: "Email Verified",
+            description: "Your email has been verified. You will be redirected shortly.",
+          })
+
+          // Redirect after a short delay
+          setTimeout(() => {
+            router.push(callbackUrl)
+          }, 2000)
+        }
+      } catch (error) {
+        console.error("Error checking verification:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    checkVerification()
+  }, [router, callbackUrl, toast])
+
   const handleResendEmail = async () => {
-    setIsResending(true)
+    if (countdown > 0) return
+
+    setResending(true)
     try {
       const result = await resendVerificationEmail()
 
@@ -23,34 +59,80 @@ export default function VerifyEmailPage() {
           title: "Verification Email Sent",
           description: "Please check your inbox for the verification link.",
         })
+
+        // Start countdown for resend button (60 seconds)
+        setCountdown(60)
+        const timer = setInterval(() => {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(timer)
+              return 0
+            }
+            return prev - 1
+          })
+        }, 1000)
       } else {
         toast({
           title: "Error",
-          description: result.message || "Failed to resend verification email.",
+          description: result.message || "Failed to send verification email. Please try again.",
           variant: "destructive",
         })
       }
     } catch (error) {
+      console.error("Error resending verification email:", error)
       toast({
         title: "Error",
-        description: "An unexpected error occurred.",
+        description: "An unexpected error occurred. Please try again.",
         variant: "destructive",
       })
     } finally {
-      setIsResending(false)
+      setResending(false)
     }
   }
 
-  const handleLogout = async () => {
-    await logoutUser()
+  if (loading) {
+    return (
+      <div className="container mx-auto py-16 px-4">
+        <Card className="w-full max-w-md mx-auto">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl">Checking Verification Status</CardTitle>
+            <CardDescription>Please wait while we check your email verification status...</CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center py-8">
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (verified) {
+    return (
+      <div className="container mx-auto py-16 px-4">
+        <Card className="w-full max-w-md mx-auto">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-green-100">
+              <CheckCircle className="h-6 w-6 text-green-600" />
+            </div>
+            <CardTitle className="text-2xl">Email Verified</CardTitle>
+            <CardDescription>
+              Your email has been successfully verified. You can now access all features of the application.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="flex justify-center">
+            <Button onClick={() => router.push(callbackUrl)}>Continue to Dashboard</Button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
   }
 
   return (
     <div className="container mx-auto py-16 px-4">
       <Card className="w-full max-w-md mx-auto">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 bg-primary/10 p-3 rounded-full w-12 h-12 flex items-center justify-center">
-            <MailCheck className="h-6 w-6 text-primary" />
+          <div className="mx-auto mb-4 p-3 rounded-full w-12 h-12 flex items-center justify-center bg-primary/10">
+            <Mail className="h-6 w-6 text-primary" />
           </div>
           <CardTitle className="text-2xl">Verify Your Email</CardTitle>
           <CardDescription>
@@ -58,30 +140,40 @@ export default function VerifyEmailPage() {
             your account.
           </CardDescription>
         </CardHeader>
-        <CardContent className="text-center">
-          <p className="text-sm text-muted-foreground mb-4">
-            If you don't see the email, check your spam folder or click the button below to resend the verification
-            email.
-          </p>
+        <CardContent>
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Important</AlertTitle>
+            <AlertDescription>
+              You need to verify your email before you can access all features of the application.
+            </AlertDescription>
+          </Alert>
+
+          <div className="mt-6">
+            <h3 className="text-sm font-medium mb-2">Didn't receive the email?</h3>
+            <ul className="text-sm text-muted-foreground space-y-2 list-disc list-inside">
+              <li>Check your spam or junk folder</li>
+              <li>Verify that you entered the correct email address</li>
+              <li>Wait a few minutes for the email to arrive</li>
+              <li>If you still don't see it, click the resend button below</li>
+            </ul>
+          </div>
         </CardContent>
-        <CardFooter className="flex flex-col space-y-2">
-          <Button onClick={handleResendEmail} className="w-full" disabled={isResending}>
-            {isResending ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Sending...
-              </>
-            ) : (
-              "Resend Verification Email"
-            )}
-          </Button>
-          <Button variant="outline" onClick={handleLogout} className="w-full">
-            <LogOut className="h-4 w-4 mr-2" />
-            Logout
+        <CardFooter className="flex flex-col gap-4">
+          <LoadingButton
+            onClick={handleResendEmail}
+            disabled={resending || countdown > 0}
+            loading={resending}
+            className="w-full"
+          >
+            {countdown > 0 ? `Resend Email (${countdown}s)` : "Resend Verification Email"}
+          </LoadingButton>
+
+          <Button variant="outline" onClick={() => router.push("/dashboard")} className="w-full">
+            I'll Verify Later
           </Button>
         </CardFooter>
       </Card>
     </div>
   )
 }
-

@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid"
 import bcrypt from "bcryptjs"
 import prisma from "./prisma"
-import { createShortUrl, getFullShortUrl } from "./url-shortener"
+import { sendEmailFromServer } from "./email-service"
 
 // Hash a password
 export async function hashPassword(password: string): Promise<string> {
@@ -151,6 +151,17 @@ export async function requireAuth() {
   return user
 }
 
+// Require verified email - throws error if not verified
+export async function requireVerifiedEmail() {
+  const user = await requireAuth()
+
+  if (!user.emailVerified) {
+    throw new Error("Email verification required. Please verify your email to continue.")
+  }
+
+  return user
+}
+
 // Get user from request (for API routes)
 export async function getUserFromRequest(request: Request) {
   const cookieHeader = request.headers.get("cookie")
@@ -182,6 +193,8 @@ export async function getUserFromRequest(request: Request) {
 // Send verification email
 export async function sendVerificationEmail(user: { id: number; email: string; username: string }): Promise<boolean> {
   try {
+    console.log("Sending verification email to:", user.email)
+
     // Generate a verification token
     const token = nanoid(32)
 
@@ -194,39 +207,31 @@ export async function sendVerificationEmail(user: { id: number; email: string; u
       },
     })
 
-    // Create a short URL for verification
-    const shortCode = await createShortUrl(`/verify-email?token=${token}`)
-    const verificationUrl = getFullShortUrl(shortCode)
-
-    // Get the base URL for the application
+    // Create a verification URL
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    const verificationUrl = `${baseUrl}/verify-email/${token}`
 
-    // Send email
-    const response = await fetch(`${baseUrl}/api/email/send`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    // Send the email using our improved email service
+    const result = await sendEmailFromServer({
+      to: user.email,
+      subject: "Verify Your Email Address",
+      template: "verification",
+      data: {
+        username: user.username,
+        verificationUrl,
       },
-      body: JSON.stringify({
-        to: user.email,
-        subject: "Verify Your Email Address",
-        template: "verification",
-        data: {
-          username: user.username,
-          verificationUrl,
-        },
-      }),
+      useApi: true, // Force using API for reliability
     })
 
-    if (!response.ok) {
-      const errorData = await response.json()
-      console.error("Error sending verification email:", errorData)
+    if (!result.success) {
+      console.error("Failed to send verification email:", result.error)
       return false
     }
 
+    console.log("Verification email sent successfully")
     return true
   } catch (error) {
-    console.error("Error sending email:", error)
+    console.error("Error sending verification email:", error)
     return false
   }
 }
@@ -268,6 +273,22 @@ export async function verifyEmail(token: string): Promise<boolean> {
       },
     })
 
+    // Send welcome email
+    try {
+      await sendEmailFromServer({
+        to: verificationToken.user.email,
+        subject: "Welcome to Event Form Builder",
+        template: "welcome",
+        data: {
+          username: verificationToken.user.username,
+        },
+        useApi: true,
+      })
+    } catch (emailError) {
+      console.error("Error sending welcome email:", emailError)
+      // Continue even if welcome email fails
+    }
+
     return true
   } catch (error) {
     console.error("Error verifying email:", error)
@@ -300,33 +321,24 @@ export async function sendPasswordResetEmail(email: string): Promise<boolean> {
       },
     })
 
-    // Create a short URL for reset
-    const shortCode = await createShortUrl(`/reset-password?token=${token}`)
-    const resetUrl = getFullShortUrl(shortCode)
-
-    // Get the base URL for the application
+    // Create reset URL
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    const resetUrl = `${baseUrl}/reset-password/${token}`
 
-    // Send email
-    const response = await fetch(`${baseUrl}/api/email/send`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    // Send the email
+    const result = await sendEmailFromServer({
+      to: user.email,
+      subject: "Reset Your Password",
+      template: "password-reset",
+      data: {
+        username: user.username,
+        resetUrl,
       },
-      body: JSON.stringify({
-        to: user.email,
-        subject: "Reset Your Password",
-        template: "password-reset",
-        data: {
-          username: user.username,
-          resetUrl,
-        },
-      }),
+      useApi: true,
     })
 
-    if (!response.ok) {
-      const errorData = await response.json()
-      console.error("Error sending password reset email:", errorData)
+    if (!result.success) {
+      console.error("Failed to send password reset email:", result.error)
       return false
     }
 
@@ -387,6 +399,16 @@ export async function resetPassword(userId: number, newPassword: string): Promis
     return true
   } catch (error) {
     console.error("Error resetting password:", error)
+    return false
+  }
+}
+
+// Check if email is verified
+export async function isEmailVerified(): Promise<boolean> {
+  try {
+    const user = await getCurrentUser()
+    return user?.emailVerified || false
+  } catch (error) {
     return false
   }
 }

@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle } from "lucide-react"
-import { sendTestEmail, testBrevoConnection } from "@/lib/email"
+import { sendEmail, verifyEmailConfig } from "@/lib/email-service"
+
 export default function EmailTestPage() {
   const [to, setTo] = useState("")
   const [subject, setSubject] = useState("Test Email")
@@ -21,11 +22,11 @@ export default function EmailTestPage() {
     setStatus(null)
 
     try {
-      const result = await testBrevoConnection()
+      const result = await verifyEmailConfig()
 
       setStatus({
         success: result.success,
-        message: result.message || (result.success ? "Connection successful" : "Connection failed"),
+        message: result.success ? "Connection successful" : `Connection failed: ${result.error}`,
       })
     } catch (error) {
       setStatus({
@@ -42,7 +43,14 @@ export default function EmailTestPage() {
     setStatus(null)
 
     try {
-      const result = await sendTestEmail(to, subject, content)
+      const result = await sendEmail({
+        to,
+        subject,
+        template: "custom",
+        data: {},
+        customHtml: content,
+        useApi: true,
+      })
 
       setStatus({
         success: result.success,
@@ -67,12 +75,12 @@ export default function EmailTestPage() {
       <div className="grid gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Test Brevo API Connection</CardTitle>
-            <CardDescription>Check if your Brevo API key is configured correctly</CardDescription>
+            <CardTitle>Test Email Configuration</CardTitle>
+            <CardDescription>Check if your email configuration is working correctly</CardDescription>
           </CardHeader>
           <CardFooter>
             <Button onClick={testApiConnection} disabled={loading}>
-              {loading ? "Testing..." : "Test API Connection"}
+              {loading ? "Testing..." : "Test Email Configuration"}
             </Button>
           </CardFooter>
         </Card>
