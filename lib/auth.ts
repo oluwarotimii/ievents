@@ -1,7 +1,6 @@
 import { nanoid } from "nanoid"
 import bcrypt from "bcryptjs"
 import prisma from "./prisma"
-import { sendEmailFromServer } from "./email-service"
 
 // Hash a password
 export async function hashPassword(password: string): Promise<string> {
@@ -210,7 +209,7 @@ export async function generateVerificationToken(userId: number): Promise<string>
   return token
 }
 
-// Send verification email - UPDATED to use the working email service
+// Update the sendVerificationEmail function to use our unified email service
 export async function sendVerificationEmail(user: { id: number; email: string; username: string }): Promise<boolean> {
   try {
     console.log("🚀 SENDING VERIFICATION EMAIL")
@@ -225,8 +224,11 @@ export async function sendVerificationEmail(user: { id: number; email: string; u
     const verificationUrl = `${baseUrl}/verify-email/${token}`
     console.log("🔗 Verification URL:", verificationUrl)
 
-    // Use the working email service
-    const result = await sendEmailFromServer({
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
       to: user.email,
       subject: "Verify Your Email Address",
       template: "verification",
@@ -234,7 +236,6 @@ export async function sendVerificationEmail(user: { id: number; email: string; u
         username: user.username,
         verificationUrl,
       },
-      useApi: true, // Force using API for reliability
     })
 
     console.log("📧 Email sending result:", result)
@@ -252,7 +253,7 @@ export async function sendVerificationEmail(user: { id: number; email: string; u
   }
 }
 
-// Verify email with token
+// Update the verifyEmail function to use our unified email service
 export async function verifyEmail(token: string): Promise<boolean> {
   try {
     // Find the verification token
@@ -289,16 +290,17 @@ export async function verifyEmail(token: string): Promise<boolean> {
       },
     })
 
-    // Send welcome email - UPDATED to use the working email service
+    // Send welcome email using our unified email service
     try {
-      await sendEmailFromServer({
+      const { sendUnifiedEmail } = await import("./email")
+
+      await sendUnifiedEmail({
         to: verificationToken.user.email,
         subject: "Welcome to Event Form Builder",
         template: "welcome",
         data: {
           username: verificationToken.user.username,
         },
-        useApi: true,
       })
     } catch (emailError) {
       console.error("Error sending welcome email:", emailError)
@@ -312,7 +314,7 @@ export async function verifyEmail(token: string): Promise<boolean> {
   }
 }
 
-// Send password reset email - UPDATED to use the working email service
+// Update the sendPasswordResetEmail function to use our unified email service
 export async function sendPasswordResetEmail(email: string): Promise<boolean> {
   try {
     // Find user by email
@@ -341,8 +343,11 @@ export async function sendPasswordResetEmail(email: string): Promise<boolean> {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
     const resetUrl = `${baseUrl}/reset-password/${token}`
 
-    // Use the working email service
-    const result = await sendEmailFromServer({
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
       to: user.email,
       subject: "Reset Your Password",
       template: "password-reset",
@@ -350,7 +355,6 @@ export async function sendPasswordResetEmail(email: string): Promise<boolean> {
         username: user.username,
         resetUrl,
       },
-      useApi: true,
     })
 
     if (!result.success) {
@@ -361,60 +365,6 @@ export async function sendPasswordResetEmail(email: string): Promise<boolean> {
     return true
   } catch (error) {
     console.error("Error sending password reset email:", error)
-    return false
-  }
-}
-
-// Verify password reset token
-export async function verifyPasswordResetToken(token: string): Promise<number | null> {
-  try {
-    // Find the reset token
-    const resetToken = await prisma.passwordResetToken.findFirst({
-      where: {
-        token,
-        expiresAt: {
-          gt: new Date(),
-        },
-      },
-    })
-
-    if (!resetToken) {
-      return null
-    }
-
-    return resetToken.userId
-  } catch (error) {
-    console.error("Error verifying reset token:", error)
-    return null
-  }
-}
-
-// Reset password
-export async function resetPassword(userId: number, newPassword: string): Promise<boolean> {
-  try {
-    // Hash the new password
-    const passwordHash = await hashPassword(newPassword)
-
-    // Update user's password
-    await prisma.user.update({
-      where: {
-        id: userId,
-      },
-      data: {
-        passwordHash,
-      },
-    })
-
-    // Delete all reset tokens for this user
-    await prisma.passwordResetToken.deleteMany({
-      where: {
-        userId,
-      },
-    })
-
-    return true
-  } catch (error) {
-    console.error("Error resetting password:", error)
     return false
   }
 }

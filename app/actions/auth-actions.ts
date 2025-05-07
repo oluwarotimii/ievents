@@ -286,73 +286,37 @@ export async function resendVerificationEmail() {
 
     console.log("👤 Attempting to resend verification email to:", user.email)
 
-    // Try to send the verification email using the email-test API
-    try {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    // Generate a verification token
+    const token = await authModule.generateVerificationToken(user.id)
 
-      // Generate a verification token
-      const token = await authModule.generateVerificationToken(user.id)
-      const verificationUrl = `${baseUrl}/verify-email/${token}`
+    // Create verification URL
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    const verificationUrl = `${baseUrl}/verify-email/${token}`
 
-      // Use the email-test API that you mentioned works
-      const response = await fetch(`${baseUrl}/api/email/send`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          to: user.email,
-          subject: "Verify Your Email Address",
-          template: "verification",
-          data: {
-            username: user.username,
-            verificationUrl,
-          },
-          useApi: true, // Force using API
-        }),
-      })
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("@/lib/email")
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error("❌ Email API error:", response.status, errorText)
-        throw new Error(`Email API error: ${response.status}`)
-      }
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
+      to: user.email,
+      subject: "Verify Your Email Address",
+      template: "verification",
+      data: {
+        username: user.username,
+        verificationUrl,
+      },
+    })
 
-      const result = await response.json()
-      console.log("✅ Email API result:", result)
-
-      if (!result.success) {
-        throw new Error(result.error || "Unknown error")
-      }
-
-      console.log("✅ Verification email sent successfully")
-      return { success: true }
-    } catch (apiError) {
-      console.error("❌ Email API error:", apiError)
-
-      // Fallback to the original method if the API fails
-      try {
-        console.log("🔄 Falling back to original method")
-        const emailSent = await authModule.sendVerificationEmail(user)
-
-        if (!emailSent) {
-          console.error("❌ Fallback method failed")
-          return {
-            success: false,
-            message: "Failed to send verification email. Please try again.",
-          }
-        }
-
-        console.log("✅ Verification email sent successfully via fallback")
-        return { success: true }
-      } catch (fallbackError) {
-        console.error("❌ Fallback method error:", fallbackError)
-        return {
-          success: false,
-          message: "Failed to send verification email. Please try again.",
-        }
+    if (!result.success) {
+      console.error("❌ Failed to send verification email:", result.error)
+      return {
+        success: false,
+        message: "Failed to send verification email. Please try again.",
       }
     }
+
+    console.log("✅ Verification email sent successfully")
+    return { success: true }
   } catch (error) {
     console.error("❌ Resend verification error:", error)
     return {

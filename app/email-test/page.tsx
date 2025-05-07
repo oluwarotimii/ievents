@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle } from "lucide-react"
-import { sendEmail, verifyEmailConfig } from "@/lib/email-service"
 
 export default function EmailTestPage() {
   const [to, setTo] = useState("")
@@ -22,7 +21,11 @@ export default function EmailTestPage() {
     setStatus(null)
 
     try {
-      const result = await verifyEmailConfig()
+      const response = await fetch("/api/email/test", {
+        method: "GET",
+      })
+
+      const result = await response.json()
 
       setStatus({
         success: result.success,
@@ -43,13 +46,14 @@ export default function EmailTestPage() {
     setStatus(null)
 
     try {
-      const result = await sendEmail({
+      // Import the unified email service
+      const { sendUnifiedEmail } = await import("@/lib/email")
+
+      // Send the email using our unified email service
+      const result = await sendUnifiedEmail({
         to,
         subject,
-        template: "custom",
-        data: {},
         customHtml: content,
-        useApi: true,
       })
 
       setStatus({

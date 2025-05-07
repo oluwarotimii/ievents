@@ -1,7 +1,6 @@
 import { render } from "@react-email/render"
 import { prisma } from "@/lib/db"
 import type { EmailTemplate } from "@/app/api/email/send/route"
-import { sendEmailFromServer } from "./email-service"
 import EventRegistrationEmail from "@/emails/event-registration-email"
 import EventCheckInEmail from "@/emails/event-check-in-email"
 import MassEmailTemplate from "@/emails/mass-email-template"
@@ -14,7 +13,6 @@ export interface SendBulkEmailOptions {
   useApi?: boolean
   scheduledAt?: string
   senderName?: string
-  senderEmail?: string
 }
 
 /**
@@ -76,6 +74,9 @@ export async function sendEmailToRegistrants({
 
     const emailFieldIds = formFields.filter((field) => field.type === "email").map((field) => field.fieldId)
 
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
     // Process each response
     let sent = 0
     let failed = 0
@@ -119,14 +120,11 @@ export async function sendEmailToRegistrants({
         // Render the email
         const finalHtmlContent = template === "custom" ? htmlContent : render(MassEmailTemplate(massEmailData))
 
-        // Use the working email service
-        const result = await sendEmailFromServer({
+        // Send the email using our unified email service
+        const result = await sendUnifiedEmail({
           to: email,
           subject,
-          template: "custom",
-          data: {},
           customHtml: finalHtmlContent,
-          useApi,
         })
 
         if (result.success) {
@@ -220,11 +218,14 @@ export async function sendEmailToRegistrant({
       return { success: false, error: "No email found in registration data" }
     }
 
-    // Use the working email service
-    const result = await sendEmailFromServer({
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
       to: attendeeEmail,
       subject,
-      template: htmlContent ? "custom" : template,
+      template: htmlContent ? undefined : (template as any),
       data: {
         formName: response.form.name,
         formCode: response.form.code,
@@ -232,7 +233,6 @@ export async function sendEmailToRegistrant({
         customFields,
       },
       customHtml: htmlContent,
-      useApi,
     })
 
     if (!result.success) {
@@ -321,14 +321,14 @@ export async function sendEventRegistrationEmail(
     // Render the email
     const htmlContent = render(EventRegistrationEmail(emailData))
 
-    // Use the working email service
-    const result = await sendEmailFromServer({
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
       to: attendeeEmail,
       subject: `Registration Confirmation: ${response.form.name}`,
-      template: "custom",
-      data: {},
       customHtml: htmlContent,
-      useApi: true,
     })
 
     if (!result.success) {
@@ -402,14 +402,14 @@ export async function sendEventCheckInEmail(
     // Render the email
     const htmlContent = render(EventCheckInEmail(emailData))
 
-    // Use the working email service
-    const result = await sendEmailFromServer({
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
       to: attendeeEmail,
       subject: `Check-in Confirmation: ${response.form.name}`,
-      template: "custom",
-      data: {},
       customHtml: htmlContent,
-      useApi: true,
     })
 
     if (!result.success) {

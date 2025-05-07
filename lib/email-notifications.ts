@@ -5,7 +5,6 @@ import RegistrationConfirmationEmail from "@/emails/registration-confirmation"
 import PaymentReceiptEmail from "@/emails/payment-receipt-email"
 import MassEmailTemplate from "@/emails/mass-email-template"
 import { getFullShortUrl, createShortUrl } from "./url-shortener"
-import { sendEmailFromServer } from "./email-service"
 
 /**
  * Send registration confirmation email
@@ -77,17 +76,17 @@ export async function sendRegistrationConfirmationEmail(responseId: number, form
       viewUrl: shortViewUrl,
     }
 
-    // Render email content
+    // Render and send email
     const htmlContent = render(RegistrationConfirmationEmail(emailData))
 
-    // Use the working email service
-    const result = await sendEmailFromServer({
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
       to: attendeeEmail,
       subject: `Registration Confirmation: ${response.form.name}`,
-      template: "custom", // Use custom template with our pre-rendered HTML
-      data: {},
       customHtml: htmlContent,
-      useApi: true,
     })
 
     if (!result.success) {
@@ -160,17 +159,17 @@ export async function sendPaymentReceiptEmail(transactionId: number): Promise<bo
       platformFee: transaction.platformFee || 0,
     }
 
-    // Render email content
+    // Render and send email
     const htmlContent = render(PaymentReceiptEmail(emailData))
 
-    // Use the working email service
-    const result = await sendEmailFromServer({
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
       to: attendeeEmail,
       subject: `Payment Receipt: ${transaction.response.form.name}`,
-      template: "custom", // Use custom template with our pre-rendered HTML
-      data: {},
       customHtml: htmlContent,
-      useApi: true,
     })
 
     if (!result.success) {
@@ -236,6 +235,9 @@ export async function sendMassEmail(
 
     const emailFieldIds = formFields.filter((field) => field.type === "email").map((field) => field.fieldId)
 
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
     // Process each response
     let sent = 0
     let failed = 0
@@ -275,23 +277,19 @@ export async function sendMassEmail(
           eventCode: formCode,
         }
 
-        // Render email content
+        // Render email
         const htmlContent = render(MassEmailTemplate(massEmailData))
 
-        // Use the working email service
-        const result = await sendEmailFromServer({
+        // Send the email using our unified email service
+        const result = await sendUnifiedEmail({
           to: email,
           subject,
-          template: "custom", // Use custom template with our pre-rendered HTML
-          data: {},
           customHtml: htmlContent,
-          useApi: true,
         })
 
         if (result.success) {
           sent++
         } else {
-          console.error(`Failed to send mass email to ${email}:`, result.error)
           failed++
         }
       } catch (error) {
@@ -352,12 +350,13 @@ export async function sendSubscriptionReceiptEmail(paymentId: number): Promise<b
     // Get plan name
     const planName = getPlanName(payment.subscription.planType)
 
-    // Use the working email service
-    const result = await sendEmailFromServer({
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
       to: email,
       subject: `Subscription Payment Receipt: ${planName} Plan`,
-      template: "custom",
-      data: {},
       customHtml: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2>Subscription Payment Receipt</h2>
@@ -374,7 +373,6 @@ export async function sendSubscriptionReceiptEmail(paymentId: number): Promise<b
           <p>Thank you for using our platform!</p>
         </div>
       `,
-      useApi: true,
     })
 
     if (!result.success) {
