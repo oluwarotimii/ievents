@@ -164,19 +164,6 @@ EMAIL_SERVER_HOST=smtp-relay.brevo.com
 EMAIL_SERVER_PORT=587
 ```
 
----
-
-## 🤝 Contributing
-
-Contributions are welcome! If you'd like to propose a feature or fix a bug:
-
-1. Fork the repo
-2. Create a branch: `git checkout -b feature-name`
-3. Commit your changes
-4. Push to the branch: `git push origin feature-name`
-5. Open a pull request
-
----
 
 ## 📝 License
 
