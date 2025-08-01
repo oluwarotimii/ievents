@@ -120,7 +120,6 @@ Visit [http://localhost:3000](http://localhost:3000)
 * **Other Tools**:
 
   * QR Code Generation (`qrcode.react`)
-  * Carousel (`embla-carousel-react`)
   * HTML to canvas (`html2canvas`)
   * Secure password hashing (`bcryptjs`)
   * Theme support (`next-themes`)
@@ -164,10 +163,6 @@ EMAIL_SERVER_HOST=smtp-relay.brevo.com
 EMAIL_SERVER_PORT=587
 ```
 
-
-## 📝 License
-
-MIT License
 
 ---
 
