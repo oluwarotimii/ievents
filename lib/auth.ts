@@ -1,8 +1,6 @@
-import { cookies } from "next/headers"
 import { nanoid } from "nanoid"
 import bcrypt from "bcryptjs"
 import prisma from "./prisma"
-import { createShortUrl, getFullShortUrl } from "./url-shortener"
 
 // Hash a password
 export async function hashPassword(password: string): Promise<string> {
@@ -32,51 +30,106 @@ export async function createSession(userId: number): Promise<void> {
     },
   })
 
-  // Set session cookie (await cookies() for App Router)
-  const cookieStore = await cookies()
-  cookieStore.set("session_token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    expires: expiresAt,
-    path: "/",
-  })
+  // Set session cookie using the appropriate method based on environment
+  if (typeof window === "undefined") {
+    // Server-side: Use dynamic import to avoid the static import error
+    try {
+      const { cookies } = await import("next/headers")
+      const cookieStore = cookies()
+      cookieStore.set("session_token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        expires: expiresAt,
+        path: "/",
+      })
+    } catch (error) {
+      // If next/headers is not available (Pages Router), handle it gracefully
+      console.warn("Could not set cookie with next/headers, falling back to API route")
+      // The cookie will be set by the API route or client-side
+    }
+  } else {
+    // Client-side: Set cookie directly
+    document.cookie = `session_token=${token}; path=/; expires=${expiresAt.toUTCString()}; ${
+      process.env.NODE_ENV === "production" ? "secure;" : ""
+    } samesite=lax;`
+  }
 }
 
 // Get the current session
 export async function getSession() {
-  const cookieStore = await cookies()
-  const sessionToken = cookieStore.get("session_token")?.value
+  let sessionToken = null
+
+  // Try to get the session token based on environment
+  if (typeof window === "undefined") {
+    // Server-side
+    try {
+      // Try App Router method first
+      const { cookies } = await import("next/headers")
+      sessionToken = cookies().get("session_token")?.value
+    } catch (error) {
+      // If next/headers is not available, we'll handle it in the API route
+      return null
+    }
+  } else {
+    // Client-side: Parse cookies from document.cookie
+    const cookies = document.cookie.split("; ").reduce(
+      (acc, cookie) => {
+        const [name, value] = cookie.split("=")
+        acc[name] = value
+        return acc
+      },
+      {} as Record<string, string>,
+    )
+
+    sessionToken = cookies.session_token
+  }
 
   if (!sessionToken) {
     return null
   }
 
-  const session = await prisma.session.findUnique({
-    where: { token: sessionToken },
-    include: { user: true },
-  })
+  try {
+    const session = await prisma.session.findUnique({
+      where: { token: sessionToken },
+      include: { user: true },
+    })
 
-  if (!session || session.expiresAt < new Date()) {
+    if (!session || session.expiresAt < new Date()) {
+      return null
+    }
+
+    return session
+  } catch (error) {
+    console.error("Error getting session:", error)
     return null
   }
-
-  return session
 }
 
 // Logout a user
 export async function logout(): Promise<void> {
-  const cookieStore = await cookies()
-  const sessionToken = cookieStore.get("session_token")?.value
+  const session = await getSession()
 
-  if (sessionToken) {
+  if (session) {
     // Delete session from database
     await prisma.session.delete({
-      where: { token: sessionToken },
+      where: { token: session.token },
     })
+  }
 
-    // Clear session cookie
-    cookieStore.delete("session_token")
+  // Clear session cookie based on environment
+  if (typeof window === "undefined") {
+    // Server-side
+    try {
+      const { cookies } = await import("next/headers")
+      cookies().delete("session_token")
+    } catch (error) {
+      // If next/headers is not available, we'll handle it in the API route
+      console.warn("Could not delete cookie with next/headers, falling back to API route")
+    }
+  } else {
+    // Client-side: Clear cookie
+    document.cookie = "session_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;"
   }
 }
 
@@ -92,6 +145,17 @@ export async function requireAuth() {
 
   if (!user) {
     throw new Error("Authentication required. Please log in to continue.")
+  }
+
+  return user
+}
+
+// Require verified email - throws error if not verified
+export async function requireVerifiedEmail() {
+  const user = await requireAuth()
+
+  if (!user.emailVerified) {
+    throw new Error("Email verification required. Please verify your email to continue.")
   }
 
   return user
@@ -125,59 +189,71 @@ export async function getUserFromRequest(request: Request) {
   return session.user
 }
 
-// Send verification email
+// Generate a verification token
+export async function generateVerificationToken(userId: number): Promise<string> {
+  console.log("Generating verification token for user:", userId)
+
+  // Generate a random token
+  const token = nanoid(32)
+
+  // Store token in database
+  await prisma.verificationToken.create({
+    data: {
+      userId,
+      token,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+    },
+  })
+
+  console.log("Verification token generated successfully")
+  return token
+}
+
+// Update the sendVerificationEmail function to use our unified email service
 export async function sendVerificationEmail(user: { id: number; email: string; username: string }): Promise<boolean> {
   try {
+    console.log("🚀 SENDING VERIFICATION EMAIL")
+    console.log("👤 User:", user.id, user.email)
+
     // Generate a verification token
-    const token = nanoid(32)
+    const token = await generateVerificationToken(user.id)
+    console.log("🔑 Generated verification token")
 
-    // Store token in database
-    await prisma.verificationToken.create({
-      data: {
-        userId: user.id,
-        token,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-      },
-    })
-
-    // Create a short URL for verification
-    const shortCode = await createShortUrl(`/verify-email?token=${token}`)
-    const verificationUrl = getFullShortUrl(shortCode)
-
-    // Get the base URL for the application
+    // Create a verification URL
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    const verificationUrl = `${baseUrl}/verify-email/${token}`
+    console.log("🔗 Verification URL:", verificationUrl)
 
-    // Send email
-    const response = await fetch(`${baseUrl}/api/email/send`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
+      to: user.email,
+      subject: "Verify Your Email Address",
+      template: "verification",
+      data: {
+        username: user.username,
+        verificationUrl,
       },
-      body: JSON.stringify({
-        to: user.email,
-        subject: "Verify Your Email Address",
-        template: "verification",
-        data: {
-          username: user.username,
-          verificationUrl,
-        },
-      }),
     })
 
-    if (!response.ok) {
-      const errorData = await response.json()
-      console.error("Error sending verification email:", errorData)
+    console.log("📧 Email sending result:", result)
+
+    if (!result.success) {
+      console.error("❌ Failed to send verification email:", result.error)
       return false
     }
 
+    console.log("✅ Verification email sent successfully")
     return true
   } catch (error) {
-    console.error("Error sending email:", error)
+    console.error("❌ Error sending verification email:", error)
     return false
   }
 }
 
-// Verify email with token
+// Update the verifyEmail function to use our unified email service
 export async function verifyEmail(token: string): Promise<boolean> {
   try {
     // Find the verification token
@@ -214,6 +290,23 @@ export async function verifyEmail(token: string): Promise<boolean> {
       },
     })
 
+    // Send welcome email using our unified email service
+    try {
+      const { sendUnifiedEmail } = await import("./email")
+
+      await sendUnifiedEmail({
+        to: verificationToken.user.email,
+        subject: "Welcome to Event Form Builder",
+        template: "welcome",
+        data: {
+          username: verificationToken.user.username,
+        },
+      })
+    } catch (emailError) {
+      console.error("Error sending welcome email:", emailError)
+      // Continue even if welcome email fails
+    }
+
     return true
   } catch (error) {
     console.error("Error verifying email:", error)
@@ -221,7 +314,7 @@ export async function verifyEmail(token: string): Promise<boolean> {
   }
 }
 
-// Send password reset email
+// Update the sendPasswordResetEmail function to use our unified email service
 export async function sendPasswordResetEmail(email: string): Promise<boolean> {
   try {
     // Find user by email
@@ -246,33 +339,26 @@ export async function sendPasswordResetEmail(email: string): Promise<boolean> {
       },
     })
 
-    // Create a short URL for reset
-    const shortCode = await createShortUrl(`/reset-password?token=${token}`)
-    const resetUrl = getFullShortUrl(shortCode)
-
-    // Get the base URL for the application
+    // Create reset URL
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    const resetUrl = `${baseUrl}/reset-password/${token}`
 
-    // Send email
-    const response = await fetch(`${baseUrl}/api/email/send`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    // Import the unified email service
+    const { sendUnifiedEmail } = await import("./email")
+
+    // Send the email using our unified email service
+    const result = await sendUnifiedEmail({
+      to: user.email,
+      subject: "Reset Your Password",
+      template: "password-reset",
+      data: {
+        username: user.username,
+        resetUrl,
       },
-      body: JSON.stringify({
-        to: user.email,
-        subject: "Reset Your Password",
-        template: "password-reset",
-        data: {
-          username: user.username,
-          resetUrl,
-        },
-      }),
     })
 
-    if (!response.ok) {
-      const errorData = await response.json()
-      console.error("Error sending password reset email:", errorData)
+    if (!result.success) {
+      console.error("Failed to send password reset email:", result.error)
       return false
     }
 
@@ -283,56 +369,12 @@ export async function sendPasswordResetEmail(email: string): Promise<boolean> {
   }
 }
 
-// Verify password reset token
-export async function verifyPasswordResetToken(token: string): Promise<number | null> {
+// Check if email is verified
+export async function isEmailVerified(): Promise<boolean> {
   try {
-    // Find the reset token
-    const resetToken = await prisma.passwordResetToken.findFirst({
-      where: {
-        token,
-        expiresAt: {
-          gt: new Date(),
-        },
-      },
-    })
-
-    if (!resetToken) {
-      return null
-    }
-
-    return resetToken.userId
+    const user = await getCurrentUser()
+    return user?.emailVerified || false
   } catch (error) {
-    console.error("Error verifying reset token:", error)
-    return null
-  }
-}
-
-// Reset password
-export async function resetPassword(userId: number, newPassword: string): Promise<boolean> {
-  try {
-    // Hash the new password
-    const passwordHash = await hashPassword(newPassword)
-
-    // Update user's password
-    await prisma.user.update({
-      where: {
-        id: userId,
-      },
-      data: {
-        passwordHash,
-      },
-    })
-
-    // Delete all reset tokens for this user
-    await prisma.passwordResetToken.deleteMany({
-      where: {
-        userId,
-      },
-    })
-
-    return true
-  } catch (error) {
-    console.error("Error resetting password:", error)
     return false
   }
 }

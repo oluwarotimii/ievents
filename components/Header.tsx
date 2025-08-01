@@ -2,9 +2,17 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+  SheetClose,
+} from "@/components/ui/sheet"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,14 +22,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Menu, Plus, LogOut, User, Settings, CreditCard, BarChart3 } from "lucide-react"
+import { Menu, Plus, LogOut, User, Settings, CreditCard, BarChart3, Home, LayoutDashboard } from "lucide-react"
 import { logoutUser } from "@/app/actions/auth-actions"
 
 export default function Header() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [isEmailVerified, setIsEmailVerified] = useState(false)
   const [username, setUsername] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const pathname = usePathname()
+  const router = useRouter()
 
   useEffect(() => {
     // Check if user is logged in
@@ -32,22 +42,47 @@ export default function Header() {
           const userData = await response.json()
           setIsLoggedIn(true)
           setUsername(userData.username || "User")
+          setIsEmailVerified(userData.emailVerified || false)
+
+          // If user is logged in but email is not verified, redirect to verification page
+          // unless they're already on the verification page
+          if (
+            isLoggedIn &&
+            !userData.emailVerified &&
+            !pathname.includes("/verify-email") &&
+            !pathname.includes("/login") &&
+            !pathname.includes("/register")
+          ) {
+            router.push("/verify-email")
+          }
+
+          // If user is logged in and on homepage, redirect to dashboard
+          if (pathname === "/" && isLoggedIn && userData.emailVerified) {
+            router.push("/dashboard")
+          }
         } else {
           setIsLoggedIn(false)
+          setIsEmailVerified(false)
         }
       } catch (error) {
         console.error("Error checking authentication:", error)
         setIsLoggedIn(false)
+        setIsEmailVerified(false)
       } finally {
         setIsLoading(false)
       }
     }
 
     checkAuth()
-  }, [])
+  }, [pathname, router, isLoggedIn])
 
   // Don't show header on login/register pages
   if (pathname === "/login" || pathname === "/register" || pathname === "/forgot-password") {
+    return null
+  }
+
+  // Don't show header for unverified users except on verification page
+  if (isLoggedIn && !isEmailVerified && !pathname.includes("/verify-email")) {
     return null
   }
 
@@ -69,9 +104,34 @@ export default function Header() {
       .substring(0, 2)
   }
 
+  const mobileMenuItems = [
+    { href: "/", label: "Home", icon: <Home className="h-5 w-5 mr-3" />, showWhen: "always" },
+    {
+      href: "/dashboard",
+      label: "Dashboard",
+      icon: <LayoutDashboard className="h-5 w-5 mr-3" />,
+      showWhen: "loggedIn",
+    },
+    { href: "/create", label: "Create Form", icon: <Plus className="h-5 w-5 mr-3" />, showWhen: "loggedIn" },
+    {
+      href: "/transactions",
+      label: "Transactions",
+      icon: <BarChart3 className="h-5 w-5 mr-3" />,
+      showWhen: "loggedIn",
+    },
+    {
+      href: "/payment-settings",
+      label: "Payment Settings",
+      icon: <CreditCard className="h-5 w-5 mr-3" />,
+      showWhen: "loggedIn",
+    },
+    { href: "/subscription", label: "Subscription", icon: <Settings className="h-5 w-5 mr-3" />, showWhen: "loggedIn" },
+    { href: "/pricing", label: "Pricing", icon: <CreditCard className="h-5 w-5 mr-3" />, showWhen: "always" },
+  ]
+
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-16 items-center justify-between">
+      <div className="container flex h-16 items-center justify-between px-2 sm:px-4 w-full max-w-full">
         <div className="flex items-center gap-2">
           <Sheet>
             <SheetTrigger asChild>
@@ -80,64 +140,91 @@ export default function Header() {
                 <span className="sr-only">Toggle menu</span>
               </Button>
             </SheetTrigger>
-            <SheetContent side="left">
-              <SheetHeader>
-                <SheetTitle>Event Form Builder</SheetTitle>
-                <SheetDescription>Create and manage your event registration forms</SheetDescription>
+            <SheetContent side="left" className="w-[280px] sm:w-[350px] p-4">
+              <SheetHeader className="pb-6 border-b">
+                <SheetTitle className="text-xl">EventFlow</SheetTitle>
+                <SheetDescription>
+                  {isLoggedIn ? (
+                    <div className="flex items-center mt-2">
+                      <Avatar className="h-8 w-8 mr-2">
+                        <AvatarImage src="/placeholder.svg" alt={username} />
+                        <AvatarFallback>{getInitials(username)}</AvatarFallback>
+                      </Avatar>
+                      <span className="font-medium">{username}</span>
+                    </div>
+                  ) : (
+                    "Create and manage your event forms"
+                  )}
+                </SheetDescription>
               </SheetHeader>
-              <nav className="flex flex-col gap-4 mt-8">
-                <Link href="/" className="text-sm font-medium hover:underline">
-                  Home
-                </Link>
+              <nav className="flex flex-col gap-1 mt-6">
+                {mobileMenuItems.map((item) => {
+                  if (
+                    item.showWhen === "always" ||
+                    (item.showWhen === "loggedIn" && isLoggedIn && isEmailVerified) ||
+                    (item.showWhen === "loggedOut" && !isLoggedIn)
+                  ) {
+                    return (
+                      <SheetClose asChild key={item.href}>
+                        <Link
+                          href={item.href}
+                          className={`flex items-center py-3 px-4 rounded-md hover:bg-muted transition-colors ${
+                            pathname === item.href ? "bg-muted font-medium" : "text-muted-foreground"
+                          }`}
+                        >
+                          {item.icon}
+                          {item.label}
+                        </Link>
+                      </SheetClose>
+                    )
+                  }
+                  return null
+                })}
+
                 {isLoggedIn ? (
-                  <>
-                    <Link href="/dashboard" className="text-sm font-medium hover:underline">
-                      Dashboard
-                    </Link>
-                    <Link href="/create" className="text-sm font-medium hover:underline">
-                      Create Form
-                    </Link>
-                    <Link href="/transactions" className="text-sm font-medium hover:underline">
-                      Transactions
-                    </Link>
-                    <Link href="/payment-settings" className="text-sm font-medium hover:underline">
-                      Payment Settings
-                    </Link>
-                    <Link href="/subscription" className="text-sm font-medium hover:underline">
-                      Subscription
-                    </Link>
-                    <button onClick={handleLogout} className="text-sm font-medium text-left hover:underline">
+                  <SheetClose asChild>
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center py-3 px-4 rounded-md hover:bg-muted transition-colors text-muted-foreground mt-2"
+                    >
+                      <LogOut className="h-5 w-5 mr-3" />
                       Logout
                     </button>
-                  </>
+                  </SheetClose>
                 ) : (
-                  <>
-                    <Link href="/login" className="text-sm font-medium hover:underline">
-                      Login
-                    </Link>
-                    <Link href="/register" className="text-sm font-medium hover:underline">
-                      Register
-                    </Link>
-                  </>
+                  <div className="flex flex-col gap-2 mt-4 px-4">
+                    <SheetClose asChild>
+                      <Button asChild size="lg" className="w-full">
+                        <Link href="/login">Login</Link>
+                      </Button>
+                    </SheetClose>
+                    <SheetClose asChild>
+                      <Button asChild variant="outline" size="lg" className="w-full">
+                        <Link href="/register">Register</Link>
+                      </Button>
+                    </SheetClose>
+                  </div>
                 )}
               </nav>
             </SheetContent>
           </Sheet>
 
-          <Link href="/" className="flex items-center space-x-2">
+          <Link href={isLoggedIn && isEmailVerified ? "/dashboard" : "/"} className="flex items-center space-x-2">
             <span className="font-bold text-xl">EventFlow</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-6 ml-6">
-            <Link
-              href="/"
-              className={`text-sm font-medium transition-colors hover:text-primary ${
-                pathname === "/" ? "text-primary" : "text-muted-foreground"
-              }`}
-            >
-              Home
-            </Link>
-            {isLoggedIn && (
+            {!isLoggedIn && (
+              <Link
+                href="/"
+                className={`text-sm font-medium transition-colors hover:text-primary ${
+                  pathname === "/" ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                Home
+              </Link>
+            )}
+            {isLoggedIn && isEmailVerified && (
               <>
                 <Link
                   href="/dashboard"
@@ -169,7 +256,7 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-2">
-          {isLoggedIn ? (
+          {isLoggedIn && isEmailVerified ? (
             <>
               <Button asChild variant="outline" className="hidden md:flex">
                 <Link href="/create">
@@ -228,11 +315,16 @@ export default function Header() {
             </>
           ) : (
             <>
-              <Button asChild variant="ghost" className="hidden md:flex">
+              <div className="hidden md:flex space-x-2">
+                <Button asChild variant="ghost">
+                  <Link href="/login">Login</Link>
+                </Button>
+                <Button asChild>
+                  <Link href="/register">Register</Link>
+                </Button>
+              </div>
+              <Button asChild size="sm" className="md:hidden">
                 <Link href="/login">Login</Link>
-              </Button>
-              <Button asChild className="hidden md:flex">
-                <Link href="/register">Register</Link>
               </Button>
             </>
           )}

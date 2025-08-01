@@ -1,15 +1,19 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import prisma from "@/lib/prisma"
+import { PrismaClient } from "@prisma/client"
 import { requireAuth } from "@/lib/auth"
 import {
   createSubaccount,
   listBanks,
-  initializeTransaction,
   verifyTransaction,
   generateTransactionReference,
+  testPaystackConnection,
 } from "@/lib/paystack"
+import { sendPaymentReceiptEmail } from "@/lib/email-notifications"
+
+// Initialize Prisma client directly in this file to ensure it's available
+const prisma = new PrismaClient()
 
 // Save payment settings
 export async function savePaymentSettings(formData: FormData) {
@@ -21,12 +25,30 @@ export async function savePaymentSettings(formData: FormData) {
     const bankName = formData.get("bankName") as string
     const accountNumber = formData.get("accountNumber") as string
     const accountName = formData.get("accountName") as string
+    const splitPercentage = Number.parseInt(formData.get("splitPercentage") as string) || 98 // Default to 98%
 
     // Validate inputs
     if (!businessName || !bankCode || !bankName || !accountNumber || !accountName) {
       return {
         success: false,
         message: "All fields are required",
+      }
+    }
+
+    // Validate split percentage
+    if (splitPercentage < 70 || splitPercentage > 99) {
+      return {
+        success: false,
+        message: "Split percentage must be between 70% and 99%",
+      }
+    }
+
+    // Test Paystack connection
+    const connectionTest = await testPaystackConnection()
+    if (!connectionTest.success) {
+      return {
+        success: false,
+        message: `Paystack connection failed: ${connectionTest.message}`,
       }
     }
 
@@ -62,7 +84,10 @@ export async function savePaymentSettings(formData: FormData) {
         console.error("Error creating Paystack subaccount:", error)
         return {
           success: false,
-          message: "Failed to create Paystack subaccount. Please try again.",
+          message:
+            error instanceof Error
+              ? `Failed to create Paystack subaccount: ${error.message}`
+              : "Failed to create Paystack subaccount. Please try again.",
         }
       }
     }
@@ -78,6 +103,7 @@ export async function savePaymentSettings(formData: FormData) {
         accountName,
         paystackSubaccountId,
         paystackSubaccountCode,
+        splitPercentage,
         updatedAt: new Date(),
       },
       create: {
@@ -89,6 +115,7 @@ export async function savePaymentSettings(formData: FormData) {
         accountName,
         paystackSubaccountId,
         paystackSubaccountCode,
+        splitPercentage,
       },
     })
 
@@ -102,7 +129,10 @@ export async function savePaymentSettings(formData: FormData) {
     console.error("Error saving payment settings:", error)
     return {
       success: false,
-      message: "An error occurred while saving payment settings",
+      message:
+        error instanceof Error
+          ? `An error occurred: ${error.message}`
+          : "An error occurred while saving payment settings",
     }
   }
 }
@@ -124,7 +154,8 @@ export async function getPaymentSettings() {
     console.error("Error getting payment settings:", error)
     return {
       success: false,
-      message: "Failed to get payment settings",
+      message:
+        error instanceof Error ? `Failed to get payment settings: ${error.message}` : "Failed to get payment settings",
     }
   }
 }
@@ -137,7 +168,7 @@ export async function getBanks() {
     if (!banksResponse.status) {
       return {
         success: false,
-        message: "Failed to fetch banks",
+        message: `Failed to fetch banks: ${banksResponse.message || "Unknown error"}`,
       }
     }
 
@@ -149,7 +180,7 @@ export async function getBanks() {
     console.error("Error fetching banks:", error)
     return {
       success: false,
-      message: "Failed to fetch banks",
+      message: error instanceof Error ? `Failed to fetch banks: ${error.message}` : "Failed to fetch banks",
     }
   }
 }
@@ -213,7 +244,10 @@ export async function enableFormPayments(
     console.error("Error enabling form payments:", error)
     return {
       success: false,
-      message: "Failed to enable payments for this form",
+      message:
+        error instanceof Error
+          ? `Failed to enable payments: ${error.message}`
+          : "Failed to enable payments for this form",
     }
   }
 }
@@ -256,21 +290,54 @@ export async function disableFormPayments(formCode: string) {
     console.error("Error disabling form payments:", error)
     return {
       success: false,
-      message: "Failed to disable payments for this form",
+      message:
+        error instanceof Error
+          ? `Failed to disable payments: ${error.message}`
+          : "Failed to disable payments for this form",
     }
   }
 }
 
 // Calculate platform fee (2% capped at ₦200)
 function calculatePlatformFee(amount: number): number {
-  const fee = amount * 0.02
-  return Math.min(fee, 200) // Cap at ₦200
+  try {
+    // Ensure amount is a number
+    const safeAmount = typeof amount === "number" ? amount : Number.parseFloat(String(amount)) || 0
+    const fee = safeAmount * 0.02
+    return Math.min(fee, 200) // Cap at ₦200
+  } catch (error) {
+    console.error("Error calculating platform fee:", error)
+    return 0 // Default to 0 if calculation fails
+  }
 }
 
-// Initialize payment for form submission
-export async function initializeFormPayment(formCode: string, email: string, name: string, responseId: number) {
+// Initialize payment for form submission with better error handling
+export async function initializeFormPayment(
+  formCode: string,
+  email: string,
+  name: string,
+  responseId: number,
+): Promise<{ success: boolean; message?: string; paymentUrl?: string; reference?: string }> {
   try {
-    // Find the form
+    console.log(`Initializing payment for form ${formCode}, response ${responseId}`)
+
+    if (!email) {
+      console.error("Missing email for payment initialization")
+      return {
+        success: false,
+        message: "Email is required for payment processing",
+      }
+    }
+
+    if (!responseId) {
+      console.error("Missing responseId for payment initialization")
+      return {
+        success: false,
+        message: "Invalid response ID",
+      }
+    }
+
+    // Find the form - no authentication required for this action
     const form = await prisma.form.findUnique({
       where: { code: formCode },
       include: {
@@ -283,21 +350,84 @@ export async function initializeFormPayment(formCode: string, email: string, nam
     })
 
     if (!form) {
+      console.error(`Form not found with code: ${formCode}`)
       return {
         success: false,
         message: "Form not found",
       }
     }
 
-    if (!form.collectsPayments || !form.paymentAmount) {
+    // Find the response to get payment fields
+    const response = await prisma.response.findUnique({
+      where: { id: responseId },
+      include: {
+        data: true,
+      },
+    })
+
+    if (!response) {
+      console.error(`Response not found with ID: ${responseId}`)
       return {
         success: false,
-        message: "This form does not collect payments",
+        message: "Response not found",
+      }
+    }
+
+    // Check if payment was already processed for this response
+    if (response.paymentStatus === "PAID") {
+      console.log(`Payment already processed for response ${responseId}`)
+      return {
+        success: false,
+        message: "Payment has already been processed for this registration",
+      }
+    }
+
+    // Calculate total from payment fields
+    let paymentFieldsTotal = 0
+    try {
+      response.data.forEach((data) => {
+        try {
+          // Check if this is a payment field data
+          if (data.value && data.value.startsWith("{") && data.value.includes("amount")) {
+            const paymentData = JSON.parse(data.value)
+            if (paymentData.amount) {
+              const amount = Number.parseFloat(paymentData.amount)
+              if (!isNaN(amount)) {
+                paymentFieldsTotal += amount
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Error parsing payment field data:", e)
+          // Skip if not valid JSON
+        }
+      })
+    } catch (error) {
+      console.error("Error calculating payment fields total:", error)
+    }
+
+    console.log(`Payment fields total: ${paymentFieldsTotal}`)
+
+    // Add form-level payment amount if enabled
+    const formPaymentAmount = form.collectsPayments && form.paymentAmount ? form.paymentAmount : 0
+    console.log(`Form payment amount: ${formPaymentAmount}`)
+
+    // Total base amount is sum of both payment types
+    const baseAmount = formPaymentAmount + paymentFieldsTotal
+    console.log(`Total base amount: ${baseAmount}`)
+
+    // If no payment is required, return error
+    if (baseAmount <= 0) {
+      console.error("No payment amount specified")
+      return {
+        success: false,
+        message: "No payment amount specified",
       }
     }
 
     // Check if user has payment settings
     if (!form.user.paymentSettings?.paystackSubaccountCode) {
+      console.error("Form owner has not set up payment collection")
       return {
         success: false,
         message: "The form owner has not set up payment collection properly",
@@ -306,11 +436,19 @@ export async function initializeFormPayment(formCode: string, email: string, nam
 
     // Generate reference
     const reference = generateTransactionReference()
+    console.log(`Generated payment reference: ${reference}`)
 
-    // Calculate platform fee (2% capped at ₦200)
-    const baseAmount = form.paymentAmount
-    const platformFee = calculatePlatformFee(baseAmount)
-    const totalAmount = baseAmount + platformFee
+    // Get the split percentage from payment settings (default to 98%)
+    const splitPercentage = form.user.paymentSettings.splitPercentage || 98
+
+    // Calculate platform fee (100% - splitPercentage)
+    const platformFeePercentage = (100 - splitPercentage) / 100
+    const platformFee = baseAmount * platformFeePercentage
+    const splitAmount = baseAmount - platformFee
+    const totalAmount = baseAmount
+
+    console.log(`Split percentage: ${splitPercentage}%`)
+    console.log(`Platform fee: ${platformFee}, Split amount: ${splitAmount}, Total amount: ${totalAmount}`)
 
     // Create transaction record
     const transaction = await prisma.transaction.create({
@@ -326,31 +464,117 @@ export async function initializeFormPayment(formCode: string, email: string, nam
         paymentMethod: "card",
         customerEmail: email,
         customerName: name,
-        formCode: form.code,
-        formName: form.name,
+        paymentGateway: "paystack",
+        splitAmount,
+        platformFee,
       },
     })
 
+    console.log(`Created transaction record: ${transaction.id}`)
+
+    // Update response payment status
+    await prisma.response.update({
+      where: { id: responseId },
+      data: {
+        paymentStatus: "PENDING",
+        paymentReference: reference,
+      },
+    })
+
+    // Get the APP_URL from environment variables or detect Vercel URL
+    let APP_URL = process.env.NEXT_PUBLIC_APP_URL || ""
+
+    // If we're on Vercel, use the deployment URL
+    if (!APP_URL && process.env.VERCEL_URL) {
+      APP_URL = `https://${process.env.VERCEL_URL}`
+    } else if (!APP_URL) {
+      // Fallback to localhost only if nothing else is available
+      APP_URL = "http://localhost:3000"
+    }
+
+    console.log(`Using APP_URL: ${APP_URL} for payment callback`)
+
+    // Ensure APP_URL doesn't have a trailing slash
+    const baseUrl = APP_URL.endsWith("/") ? APP_URL.slice(0, -1) : APP_URL
+
+    // Construct the callback URL
+    const callbackUrl = `${baseUrl}/payment/callback/${formCode}`
+
+    console.log(`Using callback URL: ${callbackUrl}`)
+
     // Initialize transaction with Paystack
-    const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/payment/callback/${formCode}`
-    const metadata = {
+    const paystackMetadata = {
       formCode: form.code,
       responseId,
       transactionId: transaction.id,
       baseAmount,
       platformFee,
+      splitAmount,
+      formName: form.name,
+      customerName: name,
+      customerEmail: email,
+      custom_fields: [
+        {
+          display_name: "Form Code",
+          variable_name: "form_code",
+          value: formCode,
+        },
+        {
+          display_name: "Event",
+          variable_name: "event_name",
+          value: form.name,
+        },
+      ],
     }
 
-    const paystackResponse = await initializeTransaction(
-      email,
-      totalAmount,
-      reference,
-      callbackUrl,
-      metadata,
-      form.user.paymentSettings.paystackSubaccountCode,
-    )
+    try {
+      console.log("Initializing Paystack transaction")
 
-    if (!paystackResponse.status) {
+      // Import the Paystack class
+      const { default: Paystack } = await import("@/lib/paystack-node")
+      const paystack = new Paystack(process.env.PAYSTACK_SECRET_KEY || "")
+
+      const paystackResponse = await paystack.initializeTransaction({
+        email,
+        amount: totalAmount * 100, // Paystack expects amount in kobo
+        reference,
+        callback_url: callbackUrl,
+        metadata: paystackMetadata,
+        subaccount: form.user.paymentSettings.paystackSubaccountCode,
+        transaction_charge: platformFee * 100, // Convert to kobo
+        bearer: "account", // The main account bears the transaction fee
+      })
+
+      if (!paystackResponse.status) {
+        // Update transaction status to failed
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: "FAILED",
+          },
+        })
+
+        console.error(`Paystack initialization failed: ${paystackResponse.message || "Unknown error"}`)
+        return {
+          success: false,
+          message: `Failed to initialize payment: ${paystackResponse.message || "Unknown error"}`,
+        }
+      }
+
+      // Log successful payment initialization
+      console.log(
+        `Payment initialized: ${reference} for form ${formCode}, amount: ${totalAmount}, URL: ${paystackResponse.data.authorization_url}`,
+      )
+
+      // Add this debug log to ensure the URL is being returned properly
+      console.log("Returning payment URL to client:", paystackResponse.data.authorization_url)
+
+      return {
+        success: true,
+        paymentUrl: paystackResponse.data.authorization_url,
+        reference,
+      }
+    } catch (error) {
       // Update transaction status to failed
       await prisma.transaction.update({
         where: { id: transaction.id },
@@ -359,29 +583,32 @@ export async function initializeFormPayment(formCode: string, email: string, nam
         },
       })
 
-      return {
-        success: false,
-        message: "Failed to initialize payment",
-      }
-    }
-
-    return {
-      success: true,
-      paymentUrl: paystackResponse.data.authorization_url,
-      reference,
+      console.error("Error during Paystack initialization:", error)
+      throw error
     }
   } catch (error) {
     console.error("Error initializing form payment:", error)
     return {
       success: false,
-      message: "Failed to initialize payment",
+      message:
+        error instanceof Error ? `Failed to initialize payment: ${error.message}` : "Failed to initialize payment",
     }
   }
 }
 
-// Verify form payment
+// Verify form payment - no authentication required
 export async function verifyFormPayment(reference: string) {
   try {
+    console.log(`Verifying form payment with reference: ${reference}`)
+
+    if (!reference || typeof reference !== "string") {
+      console.error("Invalid payment reference:", reference)
+      return {
+        success: false,
+        message: "Invalid payment reference",
+      }
+    }
+
     // Find the transaction
     const transaction = await prisma.transaction.findUnique({
       where: { reference },
@@ -395,6 +622,7 @@ export async function verifyFormPayment(reference: string) {
     })
 
     if (!transaction) {
+      console.error(`Transaction not found with reference: ${reference}`)
       return {
         success: false,
         message: "Transaction not found",
@@ -403,6 +631,7 @@ export async function verifyFormPayment(reference: string) {
 
     // If transaction is already verified
     if (transaction.status !== "PENDING") {
+      console.log(`Transaction ${reference} already processed with status: ${transaction.status}`)
       return {
         success: transaction.status === "COMPLETED",
         message: transaction.status === "COMPLETED" ? "Payment was successful" : "Payment failed or was canceled",
@@ -410,11 +639,83 @@ export async function verifyFormPayment(reference: string) {
       }
     }
 
-    // Verify with Paystack
-    const paystackResponse = await verifyTransaction(reference)
+    try {
+      // Verify with Paystack
+      console.log(`Verifying transaction ${reference} with Paystack`)
+      const paystackResponse = await verifyTransaction(reference)
+      console.log(
+        `Paystack verification response for ${reference}:`,
+        paystackResponse.status ? "Success" : "Failed",
+        paystackResponse.message,
+      )
 
-    if (!paystackResponse.status || paystackResponse.data.status !== "success") {
-      // Update transaction status to failed
+      if (!paystackResponse.status || paystackResponse.data.status !== "success") {
+        // Update transaction status to failed
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: "FAILED",
+          },
+        })
+
+        console.error(`Payment verification failed for ${reference}: ${paystackResponse.message}`)
+        return {
+          success: false,
+          message: `Payment verification failed: ${paystackResponse.message || "Transaction was not successful"}`,
+        }
+      }
+
+      // Update transaction status to completed
+      console.log(`Updating transaction ${reference} to COMPLETED`)
+      const updatedTransaction = await prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: "COMPLETED",
+          paymentDate: new Date(), // Now we have this field in the schema
+        },
+        include: {
+          response: {
+            include: {
+              form: true,
+            },
+          },
+        },
+      })
+
+      // Update response payment status
+      console.log(`Updating response ${transaction.responseId} payment status to PAID`)
+      await prisma.response.update({
+        where: { id: transaction.responseId },
+        data: {
+          paymentStatus: "PAID",
+          paymentReference: reference,
+        },
+      })
+
+      // Send payment receipt email
+      try {
+        await sendPaymentReceiptEmail(transaction.id)
+        console.log(`Payment receipt email sent for transaction ${transaction.id}`)
+      } catch (emailError) {
+        console.error(`Failed to send payment receipt email: ${emailError}`)
+        // Continue even if email sending fails
+      }
+
+      revalidatePath(`/transactions`)
+      // Get form code from the response instead
+      revalidatePath(`/responses/${transaction.response.form.code}`)
+
+      console.log(`Payment verification successful for ${reference}`)
+
+      return {
+        success: true,
+        message: "Payment verified successfully",
+        transaction: updatedTransaction,
+      }
+    } catch (error) {
+      // Update transaction status to failed on verification error
+      console.error(`Error during Paystack verification for ${reference}:`, error)
+
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: {
@@ -422,41 +723,13 @@ export async function verifyFormPayment(reference: string) {
         },
       })
 
-      return {
-        success: false,
-        message: "Payment verification failed",
-      }
-    }
-
-    // Update transaction status to completed
-    const updatedTransaction = await prisma.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        status: "COMPLETED",
-        paymentDate: new Date(),
-      },
-      include: {
-        response: {
-          include: {
-            form: true,
-          },
-        },
-      },
-    })
-
-    revalidatePath(`/transactions`)
-    revalidatePath(`/responses/${transaction.formCode}`)
-
-    return {
-      success: true,
-      message: "Payment verified successfully",
-      transaction: updatedTransaction,
+      throw error
     }
   } catch (error) {
     console.error("Error verifying form payment:", error)
     return {
       success: false,
-      message: "Failed to verify payment",
+      message: error instanceof Error ? `Failed to verify payment: ${error.message}` : "Failed to verify payment",
     }
   }
 }
@@ -485,14 +758,14 @@ export async function getUserTransactions() {
 
     const totalFees = transactions.reduce((sum, transaction) => {
       if (transaction.status === "COMPLETED") {
-        return sum + transaction.fee
+        return sum + (transaction.platformFee || transaction.fee)
       }
       return sum
     }, 0)
 
     const totalNetAmount = transactions.reduce((sum, transaction) => {
       if (transaction.status === "COMPLETED") {
-        return sum + transaction.netAmount
+        return sum + (transaction.splitAmount || transaction.netAmount)
       }
       return sum
     }, 0)
@@ -511,12 +784,12 @@ export async function getUserTransactions() {
     console.error("Error getting user transactions:", error)
     return {
       success: false,
-      message: "Failed to get transactions",
+      message: error instanceof Error ? `Failed to get transactions: ${error.message}` : "Failed to get transactions",
     }
   }
 }
 
-// Get transaction by reference
+// Get transaction by reference - no authentication required for public access
 export async function getTransactionByReference(reference: string) {
   try {
     const transaction = await prisma.transaction.findUnique({
@@ -545,8 +818,24 @@ export async function getTransactionByReference(reference: string) {
     console.error("Error getting transaction:", error)
     return {
       success: false,
-      message: "Failed to get transaction",
+      message: error instanceof Error ? `Failed to get transaction: ${error.message}` : "Failed to get transaction",
     }
   }
 }
 
+// Test Paystack connection
+export async function testPaystackIntegration() {
+  try {
+    const result = await testPaystackConnection()
+    return result
+  } catch (error) {
+    console.error("Error testing Paystack integration:", error)
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? `Failed to test Paystack integration: ${error.message}`
+          : "Failed to test Paystack integration",
+    }
+  }
+}

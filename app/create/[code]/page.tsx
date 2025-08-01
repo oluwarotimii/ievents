@@ -17,6 +17,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import ShareFormLink from "@/components/share-form-link"
 import EventFormBuilder from "@/event-form-builder/EventFormBuilder"
 import { getFormByCode, updateForm } from "@/app/actions/form-actions"
+// Import the PaymentGuide component near the top of the file
+import PaymentGuide from "./payment-guide"
 
 export default function EditFormPage({ params }: { params: { code: string } }) {
   // Unwrap the params object using React.use()
@@ -214,6 +216,7 @@ export default function EditFormPage({ params }: { params: { code: string } }) {
         </TabsContent>
 
         <TabsContent value="payment">
+          <PaymentGuide />
           <PaymentSettingsComponent formCode={code} formData={formData} onChange={handlePaymentSettingsChange} />
         </TabsContent>
 

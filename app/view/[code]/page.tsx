@@ -4,15 +4,21 @@ import React, { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
-import { LoadingButton } from "@/components/ui/loading-button"
 import { useToast } from "@/hooks/use-toast"
 import type { FormField, PaymentField } from "@/event-form-builder/types"
 import ShareFormLink from "@/components/share-form-link"
 import { getFormByCode, submitFormResponse } from "@/app/actions/form-actions"
 import { initializeFormPayment } from "@/app/actions/payment-actions"
-import { CheckCircle2, Loader2, CreditCard } from "lucide-react"
+import { AlertCircle, CheckCircle2, CreditCard, ExternalLink, Loader2 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useLoading } from "@/components/loading-context"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export default function ViewFormPage({ params }: { params: { code: string } }) {
   // Unwrap the params object using React.use()
@@ -31,12 +37,20 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   const router = useRouter()
   const { toast } = useToast()
   const { isLoading, startLoading, stopLoading } = useLoading()
+  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
+  const [formLevelPayment, setFormLevelPayment] = useState<number>(0)
+  const [isLoadingFormData, setIsLoadingFormData] = useState<boolean>(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [paymentUrl, setPaymentUrl] = useState<string | null>(null)
+  const [processingPayment, setProcessingPayment] = useState(false)
 
   useEffect(() => {
     loadForm()
   }, [code])
 
   const loadForm = async () => {
+    setLoading(true)
     try {
       // Validate that code is 4 digits
       if (!/^\d{4}$/.test(code)) {
@@ -57,6 +71,11 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         setFormFields(form.fields || [])
         setFormName(form.name || "Event Registration Form")
         setFormExists(true)
+
+        // Check if form has payment settings
+        if (form.collectsPayments && form.paymentAmount) {
+          setFormLevelPayment(form.paymentAmount)
+        }
 
         // Initialize selected payment items
         const paymentSelections: Record<string, boolean> = {}
@@ -107,17 +126,38 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   const calculateTotalPayment = () => {
     return formFields
       .filter((field) => field.type === "payment" && selectedPaymentItems[field.id])
-      .reduce((total, field) => total + ((field as PaymentField).amount || 0), 0)
+      .reduce((total, field) => {
+        // Ensure amount is a number and has a default value of 0
+        const amount = typeof (field as PaymentField).amount === "number" ? (field as PaymentField).amount : 0
+        return total + amount
+      }, 0)
   }
 
   // Calculate platform fee (2% capped at ₦200)
   const calculatePlatformFee = (amount: number): number => {
-    const fee = amount * 0.02
+    // Ensure amount is a number
+    const safeAmount = typeof amount === "number" ? amount : 0
+    const fee = safeAmount * 0.02
     return Math.min(fee, 200) // Cap at ₦200
   }
 
+  // Calculate total amount including form level payment and payment fields
+  const totalPaymentFieldsAmount = calculateTotalPayment()
+  const totalAmount = totalPaymentFieldsAmount + formLevelPayment
+  const platformFee = calculatePlatformFee(totalAmount)
+  const grandTotal = totalAmount + platformFee
+
+  // Add proper error handling to the form submission process
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Prevent double submission
+    if (submitting) {
+      console.log("Form submission prevented - already submitting")
+      return
+    }
+
+    setSubmitting(true)
     startLoading("form-submit")
 
     // Validate required fields
@@ -137,6 +177,7 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         variant: "destructive",
       })
       stopLoading("form-submit")
+      setSubmitting(false)
       return
     }
 
@@ -147,8 +188,8 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         if (field.type === "payment" && selectedPaymentItems[field.id]) {
           const paymentField = field as PaymentField
           paymentData[field.id] = {
-            amount: paymentField.amount,
-            currency: paymentField.currency,
+            amount: paymentField.amount || 0,
+            currency: paymentField.currency || "NGN",
             itemType: paymentField.itemType || "registration",
             description: paymentField.description || field.label,
           }
@@ -160,10 +201,28 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         ...paymentData,
       }
 
+      console.log("Submitting form data:", submissionData)
+
       // Submit form response to the database
       const result = await submitFormResponse(code, submissionData)
 
+      console.log("Form submission result:", result)
+
       if (!result.success) {
+        // Check for specific error types
+        if (result.message && result.message.includes("email has already been registered")) {
+          toast({
+            title: "Duplicate Registration",
+            description: "This email has already been registered for this event.",
+            variant: "destructive",
+          })
+        } else {
+          toast({
+            title: "Submission Failed",
+            description: result.message || "Failed to submit form. Please try again.",
+            variant: "destructive",
+          })
+        }
         throw new Error(result.message || "Failed to submit form")
       }
 
@@ -171,28 +230,37 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       setSubmittedData(submissionData)
       setResponseId(result.responseId)
 
-      // If there are selected payment items, redirect to payment
-      const totalPayment = calculateTotalPayment()
-      if (totalPayment > 0) {
-        await handlePayment(result.responseId, totalPayment)
+      // If there are selected payment items OR form has a payment amount, proceed to payment
+      if (totalAmount > 0) {
+        // Show payment confirmation step
+        setShowPaymentConfirmation(true)
+
+        // Pre-initialize payment to get the URL ready
+        initializePayment(result.responseId)
       } else {
         // Show success screen if no payment needed
         setSubmissionSuccess(true)
       }
     } catch (error) {
       console.error("Error submitting form:", error)
-      toast({
-        title: "Submission Failed",
-        description: error instanceof Error ? error.message : "Failed to submit your registration. Please try again.",
-        variant: "destructive",
-      })
+      // Don't show duplicate error toast again if we've already shown one above
+      if (!(error instanceof Error && error.message.includes("already been registered"))) {
+        toast({
+          title: "Submission Failed",
+          description: error instanceof Error ? error.message : "Failed to submit your registration. Please try again.",
+          variant: "destructive",
+        })
+      }
     } finally {
       stopLoading("form-submit")
+      setSubmitting(false)
     }
   }
 
-  const handlePayment = async (responseId: number, totalAmount: number) => {
-    startLoading("payment-process")
+  // New function to initialize payment and get URL
+  const initializePayment = async (respId: number) => {
+    setProcessingPayment(true)
+    setPaymentError(null)
 
     try {
       // Get email and name from form values
@@ -213,68 +281,197 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         throw new Error("Email is required for payment")
       }
 
+      if (!name) {
+        // Use email as fallback for name if not found
+        name = email.split("@")[0]
+      }
+
+      console.log("Initializing payment with email:", email, "and name:", name)
+
       // Initialize payment
-      const paymentResult = await initializeFormPayment(code, email, name, responseId)
+      const paymentResult = await initializeFormPayment(code, email, name, respId)
+
+      console.log("Payment initialization result:", paymentResult)
 
       if (!paymentResult.success) {
         throw new Error(paymentResult.message || "Failed to initialize payment")
       }
 
-      // Redirect to payment page
-      window.location.href = paymentResult.paymentUrl
+      if (!paymentResult.paymentUrl) {
+        throw new Error("No payment URL received from payment processor")
+      }
+
+      // Store the payment URL
+      setPaymentUrl(paymentResult.paymentUrl)
+      console.log("Payment URL set:", paymentResult.paymentUrl)
     } catch (error) {
-      console.error("Error processing payment:", error)
+      console.error("Error initializing payment:", error)
+      setPaymentError(error instanceof Error ? error.message : "Failed to initialize payment")
+    } finally {
+      setProcessingPayment(false)
+    }
+  }
+
+  // Function to handle redirect to payment page
+  const handlePaymentRedirect = () => {
+    if (!paymentUrl) {
       toast({
         title: "Payment Error",
-        description: error instanceof Error ? error.message : "Failed to process payment. Please try again.",
+        description: "No payment URL available. Please try again.",
         variant: "destructive",
       })
-
-      // Show success screen anyway, they can try payment again later
-      setSubmissionSuccess(true)
-    } finally {
-      stopLoading("payment-process")
-    }
-  }
-
-  const getFirstName = (data: Record<string, any>): string => {
-    // Try to find a field that might contain the first name
-    for (const field of formFields) {
-      const fieldId = field.id
-      const value = data[fieldId]
-
-      // Check if the field label contains "name" and has a value
-      if (field.label.toLowerCase().includes("name") && typeof value === "string" && value.trim() !== "") {
-        // If it's "Full Name", try to extract first name
-        if (field.label.toLowerCase().includes("full")) {
-          const nameParts = value.trim().split(" ")
-          return nameParts[0] || value
-        }
-        return value
-      }
+      return
     }
 
-    // Fallback to "there" if no name field found
-    return "there"
+    // Show loading message before redirect
+    toast({
+      title: "Redirecting to Payment",
+      description: "Please wait while we redirect you to the payment page...",
+    })
+
+    // Redirect to payment page
+    window.location.href = paymentUrl
   }
 
+  // Show loading indicator while the form is loading
   if (loading) {
     return (
-      <div className="container flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin mb-4" />
-        <p>Loading form...</p>
+      <div className="container mx-auto py-8 px-4 flex flex-col items-center justify-center min-h-[60vh]">
+        <Card className="w-full max-w-md">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="h-12 w-12 animate-spin mb-4 text-primary" />
+            <h3 className="text-xl font-medium mb-2">Loading Form</h3>
+            <p className="text-muted-foreground text-center">Please wait while we load the registration form...</p>
+          </CardContent>
+        </Card>
       </div>
     )
   }
 
-  if (!formExists) {
-    return null // Will redirect in useEffect
+  // Updated payment confirmation screen with better error handling and direct link
+  if (showPaymentConfirmation && responseId) {
+    return (
+      <div className="container mx-auto py-6 sm:py-8 px-4 w-full max-w-md">
+        <Card className="w-full shadow-lg">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl sm:text-2xl text-center">Complete Your Payment</CardTitle>
+            <CardDescription className="text-center">
+              Your registration for {formName} has been received
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="payment-summary">
+              <h3 className="font-medium text-blue-800 mb-3">Payment Summary</h3>
+              <div className="bg-white p-4 rounded-md">
+                {formLevelPayment > 0 && (
+                  <div className="payment-item">
+                    <span className="text-sm">Registration Fee</span>
+                    <span>₦{formLevelPayment.toLocaleString()}</span>
+                  </div>
+                )}
+
+                {formFields
+                  .filter((field) => field.type === "payment" && selectedPaymentItems[field.id])
+                  .map((field, index) => {
+                    const paymentField = field as PaymentField
+                    const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
+                    const currency = paymentField.currency || "NGN"
+                    return (
+                      <div key={index} className="payment-item">
+                        <span className="text-sm">{field.label}</span>
+                        <span>
+                          {currency} {amount.toLocaleString()}
+                        </span>
+                      </div>
+                    )
+                  })}
+                <div className="payment-item">
+                  <span className="text-sm">Platform Fee (2%):</span>
+                  <span>₦{platformFee.toLocaleString()}</span>
+                </div>
+                <div className="payment-total">
+                  <span>Total:</span>
+                  <span>₦{grandTotal.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            {paymentError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Payment Error</AlertTitle>
+                <AlertDescription>{paymentError}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-4">
+              <div className="p-4 bg-gray-50 rounded-md">
+                <h4 className="font-medium mb-2">Payment Information</h4>
+                <p className="text-sm text-muted-foreground mb-2">
+                  You'll be redirected to Paystack to complete your payment securely.
+                </p>
+                <div className="flex items-center space-x-2 text-sm">
+                  <CreditCard className="h-4 w-4 text-green-600" />
+                  <span>Secure payment powered by Paystack</span>
+                </div>
+              </div>
+
+              {/* Show different button states based on payment initialization */}
+              {processingPayment ? (
+                <Button className="w-full h-12 text-lg" disabled>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Preparing payment...
+                </Button>
+              ) : paymentUrl ? (
+                <Button className="w-full h-12 text-lg" onClick={handlePaymentRedirect} type="button">
+                  <CreditCard className="h-5 w-5 mr-2" />
+                  Proceed to Payment
+                </Button>
+              ) : (
+                <Button className="w-full h-12 text-lg" onClick={() => initializePayment(responseId)} type="button">
+                  <CreditCard className="h-5 w-5 mr-2" />
+                  Initialize Payment
+                </Button>
+              )}
+
+              {/* Direct link as fallback */}
+              {paymentUrl && (
+                <div className="text-center mt-4">
+                  <p className="text-sm text-muted-foreground mb-2">
+                    If the button doesn't work, you can also click the link below:
+                  </p>
+                  <a
+                    href={paymentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline inline-flex items-center"
+                  >
+                    Open Payment Page <ExternalLink className="ml-1 h-3 w-3" />
+                  </a>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
-  // If submission was successful
+  // Also modify the success screen to remove the payment option if they somehow get there without paying
+  // Replace the payment section in the success screen with a message that payment is required
   if (submissionSuccess) {
+    const getFirstName = (data: Record<string, any>): string => {
+      for (const key in data) {
+        if (key.toLowerCase().includes("name")) {
+          const name = data[key]
+          if (typeof name === "string") {
+            return name.split(" ")[0]
+          }
+        }
+      }
+      return "Guest"
+    }
     const firstName = getFirstName(submittedData)
-    const totalPayment = calculateTotalPayment()
 
     return (
       <div className="container mx-auto py-8 px-4 max-w-md">
@@ -290,62 +487,25 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
             <h2 className="text-2xl font-bold text-center mb-2">Thank You, {firstName}!</h2>
             <p className="text-center text-muted-foreground mb-4">Your registration has been successfully submitted.</p>
 
-            {totalPayment > 0 && responseId && (
-              <div className="w-full mt-4">
-                <Card className="bg-blue-50 border-blue-100">
-                  <CardContent className="pt-6">
-                    <h3 className="font-medium text-blue-800 mb-2">Payment Required</h3>
-                    <p className="text-sm text-blue-700 mb-4">
-                      Please complete your payment to confirm your registration.
-                    </p>
-                    <div className="bg-white p-3 rounded-md mb-4">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Total Amount:</span>
-                        <span>₦{totalPayment.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Platform Fee (2%):</span>
-                        <span>₦{calculatePlatformFee(totalPayment).toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between font-medium border-t border-blue-100 pt-1 mt-1">
-                        <span>Total:</span>
-                        <span>₦{(totalPayment + calculatePlatformFee(totalPayment)).toLocaleString()}</span>
-                      </div>
-                    </div>
-                    <LoadingButton
-                      className="w-full"
-                      onClick={() => handlePayment(responseId, totalPayment)}
-                      loadingId="payment-process"
-                      loadingText="Processing payment..."
-                    >
-                      <CreditCard className="h-4 w-4 mr-2" />
-                      Pay Now
-                    </LoadingButton>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
             <p className="text-center text-muted-foreground mt-4">
               You will receive a confirmation email shortly with all the event details.
             </p>
           </CardContent>
-          <CardFooter className="flex justify-center gap-4">
-            <LoadingButton
+          <CardFooter className="flex-responsive justify-center gap-4">
+            <Button
               variant="outline"
               onClick={() => {
                 setSubmissionSuccess(false)
                 setFormValues({})
                 setResponseId(null)
               }}
-              loadingId="register-another"
-              loadingText="Loading..."
+              className="btn-responsive"
             >
               Register Another Person
-            </LoadingButton>
-            <LoadingButton asChild loadingId="return-home" loadingText="Loading...">
+            </Button>
+            <Button asChild className="btn-responsive">
               <Link href="/">Return to Home</Link>
-            </LoadingButton>
+            </Button>
           </CardFooter>
         </Card>
       </div>
@@ -354,9 +514,6 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
 
   // Check if there are any payment fields
   const hasPaymentFields = formFields.some((field) => field.type === "payment")
-  const totalPayment = calculateTotalPayment()
-  const platformFee = calculatePlatformFee(totalPayment)
-  const grandTotal = totalPayment + platformFee
 
   // Otherwise show the form
   const renderField = (field: FormField) => {
@@ -365,122 +522,123 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
       case "email":
       case "phone":
         return (
-          <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+          <div className="form-input-group">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <input
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Input
               id={field.id}
               type={field.type === "email" ? "email" : "text"}
-              className="w-full p-2 border rounded-md"
               required={field.required}
               value={formValues[field.id] || ""}
               onChange={(e) => handleInputChange(field.id, e.target.value)}
-              disabled={isLoading}
+              disabled={isLoading || submitting}
+              placeholder={`Enter ${field.label.toLowerCase()}`}
+              className="form-control"
             />
           </div>
         )
       case "date":
         return (
-          <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+          <div className="form-input-group">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <input
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Input
               id={field.id}
               type="date"
-              className="w-full p-2 border rounded-md"
               required={field.required}
               value={formValues[field.id] || ""}
               onChange={(e) => handleInputChange(field.id, e.target.value)}
-              disabled={isLoading}
+              disabled={isLoading || submitting}
+              className="form-control"
             />
           </div>
         )
       case "textarea":
         return (
-          <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+          <div className="form-input-group">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <textarea
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Textarea
               id={field.id}
-              className="w-full p-2 border rounded-md"
               required={field.required}
               value={formValues[field.id] || ""}
               onChange={(e) => handleInputChange(field.id, e.target.value)}
-              disabled={isLoading}
+              disabled={isLoading || submitting}
+              placeholder={`Enter ${field.label.toLowerCase()}`}
+              className="form-control min-h-[100px]"
             />
           </div>
         )
       case "select":
         return (
-          <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+          <div className="form-input-group">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <select
-              id={field.id}
-              className="w-full p-2 border rounded-md"
-              required={field.required}
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Select
               value={formValues[field.id] || ""}
-              onChange={(e) => handleInputChange(field.id, e.target.value)}
-              disabled={isLoading}
+              onValueChange={(value) => handleInputChange(field.id, value)}
+              disabled={isLoading || submitting}
             >
-              <option value="">Select an option</option>
-              {field.options?.map((option, index) => (
-                <option key={index} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id={field.id} className="form-control">
+                <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+              </SelectTrigger>
+              <SelectContent>
+                {field.options?.map((option, index) => (
+                  <SelectItem key={index} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )
       case "radio":
         return (
-          <div className="mb-4">
-            <fieldset>
-              <legend className="block text-sm font-medium mb-1">
-                {field.label}
-                {field.required && "*"}
-              </legend>
+          <div className="form-input-group">
+            <Label className="mb-1.5 block">
+              {field.label}
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <RadioGroup
+              value={formValues[field.id] || ""}
+              onValueChange={(value) => handleInputChange(field.id, value)}
+              className="mt-2 space-y-2"
+            >
               {field.options?.map((option, index) => (
-                <div key={index} className="flex items-center space-x-2 mt-1">
-                  <input
-                    type="radio"
-                    id={`${field.id}-${index}`}
-                    name={field.id}
-                    value={option}
-                    required={field.required}
-                    checked={formValues[field.id] === option}
-                    onChange={() => handleInputChange(field.id, option)}
-                    disabled={isLoading}
-                  />
-                  <label htmlFor={`${field.id}-${index}`}>{option}</label>
+                <div key={index} className="flex items-center space-x-2">
+                  <RadioGroupItem value={option} id={`${field.id}-${index}`} disabled={isLoading || submitting} />
+                  <Label htmlFor={`${field.id}-${index}`} className="cursor-pointer">
+                    {option}
+                  </Label>
                 </div>
               ))}
-            </fieldset>
+            </RadioGroup>
           </div>
         )
       case "number":
         return (
-          <div className="mb-4">
-            <label htmlFor={field.id} className="block text-sm font-medium mb-1">
+          <div className="form-input-group">
+            <Label htmlFor={field.id} className="mb-1.5 block">
               {field.label}
-              {field.required && "*"}
-            </label>
-            <input
+              {field.required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Input
               id={field.id}
               type="number"
-              className="w-full p-2 border rounded-md"
               required={field.required}
               value={formValues[field.id] || ""}
               onChange={(e) => handleInputChange(field.id, e.target.value)}
-              disabled={isLoading}
+              disabled={isLoading || submitting}
+              placeholder={`Enter ${field.label.toLowerCase()}`}
+              className="form-control"
             />
           </div>
         )
@@ -488,9 +646,12 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
         const paymentField = field as PaymentField
         const isOptional = paymentField.isOptional || false
         const isSelected = selectedPaymentItems[field.id] || false
+        // Ensure amount is a number with a default value of 0
+        const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
+        const currency = paymentField.currency || "NGN"
 
         return (
-          <div className="mb-4 p-3 border rounded-md bg-gray-50">
+          <div className="mb-4 p-4 border rounded-md bg-gray-50 hover:bg-gray-100 transition-colors">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center">
                 {isOptional && (
@@ -498,26 +659,26 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
                     id={`payment-${field.id}`}
                     checked={isSelected}
                     onCheckedChange={(checked) => handlePaymentItemToggle(field.id, checked === true)}
-                    className="mr-2"
-                    disabled={isLoading}
+                    className="mr-3"
+                    disabled={isLoading || submitting}
                   />
                 )}
-                <label htmlFor={`payment-${field.id}`} className="font-medium">
+                <Label htmlFor={`payment-${field.id}`} className="font-medium cursor-pointer">
                   {field.label}
-                  {!isOptional && "*"}
-                </label>
+                  {!isOptional && <span className="text-red-500 ml-1">*</span>}
+                </Label>
               </div>
               <div className="text-right font-medium">
-                {paymentField.currency} {paymentField.amount.toLocaleString()}
+                {currency} {amount.toLocaleString()}
               </div>
             </div>
 
             {paymentField.description && (
-              <p className="text-sm text-muted-foreground mt-1">{paymentField.description}</p>
+              <p className="text-sm text-muted-foreground mt-1 ml-7">{paymentField.description}</p>
             )}
 
             {paymentField.itemType && (
-              <div className="mt-1">
+              <div className="mt-2 ml-7">
                 <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded-full">
                   {paymentField.itemType.charAt(0).toUpperCase() + paymentField.itemType.slice(1)}
                 </span>
@@ -531,42 +692,63 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 w-full max-w-md sm:max-w-lg md:max-w-xl">
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle className="text-xl sm:text-2xl">{formName}</CardTitle>
-          <CardDescription>Event Code: {code}</CardDescription>
+    <div className="container mx-auto py-6 sm:py-8 w-full responsive-card">
+      <Card className="w-full shadow-sm">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-responsive-title text-center">{formName}</CardTitle>
+          <CardDescription className="text-center">Event Code: {code}</CardDescription>
         </CardHeader>
         <CardContent>
           <ShareFormLink code={code} />
 
-          <form onSubmit={handleFormSubmit} className="mt-6 space-y-4">
+          <form onSubmit={handleFormSubmit} className="mt-6 form-layout">
+            {/* Show form level payment if it exists */}
+            {formLevelPayment > 0 && (
+              <div className="p-4 border rounded-md bg-blue-50">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="font-medium">Registration Fee</Label>
+                  <div className="text-right font-medium">₦{formLevelPayment.toLocaleString()}</div>
+                </div>
+                <p className="text-sm text-muted-foreground">This is the base registration fee for this event.</p>
+              </div>
+            )}
+
             {formFields.map((field) => (
               <div key={field.id}>{renderField(field)}</div>
             ))}
 
-            {hasPaymentFields && totalPayment > 0 && (
-              <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-md">
-                <h3 className="font-medium text-blue-800 mb-2">Payment Summary</h3>
-                <div className="bg-white p-3 rounded-md">
+            {/* Show payment summary if there are any payments */}
+            {(hasPaymentFields || formLevelPayment > 0) && (
+              <div className="payment-summary">
+                <h3 className="font-medium text-blue-800 mb-3">Payment Summary</h3>
+                <div className="bg-white p-4 rounded-md">
+                  {formLevelPayment > 0 && (
+                    <div className="payment-item">
+                      <span className="text-sm">Registration Fee</span>
+                      <span>₦{formLevelPayment.toLocaleString()}</span>
+                    </div>
+                  )}
+
                   {formFields
                     .filter((field) => field.type === "payment" && selectedPaymentItems[field.id])
                     .map((field, index) => {
                       const paymentField = field as PaymentField
+                      const amount = typeof paymentField.amount === "number" ? paymentField.amount : 0
+                      const currency = paymentField.currency || "NGN"
                       return (
-                        <div key={index} className="flex justify-between mb-1">
+                        <div key={index} className="payment-item">
                           <span className="text-sm">{field.label}</span>
                           <span>
-                            {paymentField.currency} {paymentField.amount.toLocaleString()}
+                            {currency} {amount.toLocaleString()}
                           </span>
                         </div>
                       )
                     })}
-                  <div className="flex justify-between mb-1">
+                  <div className="payment-item">
                     <span className="text-sm">Platform Fee (2%):</span>
                     <span>₦{platformFee.toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between font-medium border-t border-blue-100 pt-1 mt-1">
+                  <div className="payment-total">
                     <span>Total:</span>
                     <span>₦{grandTotal.toLocaleString()}</span>
                   </div>
@@ -574,9 +756,16 @@ export default function ViewFormPage({ params }: { params: { code: string } }) {
               </div>
             )}
 
-            <LoadingButton type="submit" className="w-full" loadingId="form-submit" loadingText="Submitting...">
-              Submit Registration
-            </LoadingButton>
+            <Button type="submit" className="w-full h-12 text-lg mt-6" disabled={submitting}>
+              {submitting ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                "Submit Registration"
+              )}
+            </Button>
           </form>
         </CardContent>
       </Card>

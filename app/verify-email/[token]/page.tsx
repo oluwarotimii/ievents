@@ -106,4 +106,3 @@ export default function VerifyEmailTokenPage({ params }: { params: { token: stri
     </div>
   )
 }
-

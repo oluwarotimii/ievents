@@ -30,6 +30,7 @@ model User {
   sessions                  Session[]
   verificationTokens        VerificationToken[]
   passwordResetTokens       PasswordResetToken[]
+  paystackCustomerCode      String?   @map("paystack_customer_code")
 
   @@map("users")
 }
@@ -131,7 +132,7 @@ model ResponseData {
   @@map("response_data")
 }
 
-// New models for subscription management
+// Subscription management models
 model Subscription {
   id                Int              @id @default(autoincrement())
   userId            Int              @unique @map("user_id")
@@ -144,6 +145,9 @@ model Subscription {
   createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime         @default(now()) @map("updated_at") @db.Timestamptz
   payments          Payment[]
+  paystackPlanId    String?          @map("paystack_plan_id")
+  paystackSubscriptionCode String?   @map("paystack_subscription_code")
+  nextPaymentDate   DateTime?        @map("next_payment_date") @db.Timestamptz
 
   @@map("subscriptions")
 }
@@ -178,7 +182,7 @@ model PaymentIntent {
   @@map("payment_intents")
 }
 
-// New models for payment processing
+// Payment processing models
 model PaymentSettings {
   id                Int       @id @default(autoincrement())
   userId            Int       @unique @map("user_id")
@@ -192,6 +196,7 @@ model PaymentSettings {
   paystackSubaccountCode String? @map("paystack_subaccount_code")
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+  splitPercentage   Int       @default(98) @map("split_percentage") // Default 98% to subaccount, 2% platform fee
 
   @@map("payment_settings")
 }
@@ -214,11 +219,14 @@ model Transaction {
   customerEmail   String?   @map("customer_email")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+  paymentDate     DateTime? @map("payment_date") @db.Timestamptz
+  splitAmount     Float?    @map("split_amount") // Amount that goes to the organizer
+  platformFee     Float?    @map("platform_fee") // Amount that goes to the platform
 
   @@map("transactions")
 }
 
-// Updated ShortUrl model with shortCode field
+// ShortUrl model
 model ShortUrl {
   id        Int      @id @default(autoincrement())
   url       String   @map("url")

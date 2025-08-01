@@ -1,54 +1,105 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-// Add paths that should be accessible without authentication
-const publicPaths = [
+// Define public routes that don't require authentication
+const publicRoutes = [
   "/",
   "/login",
   "/register",
   "/forgot-password",
   "/reset-password",
   "/verify-email",
-  "/view",
-  "/check-in",
   "/pricing",
-  "/api", // Allow API routes to be accessed
+  "/api/auth/session",
+  "/api/user",
 ]
+
+// Define routes that require authentication but not email verification
+const authRoutes = ["/verify-email"]
+
+// Check if a path matches any of the patterns
+const matchesPattern = (path: string, patterns: string[]) => {
+  return patterns.some((pattern) => {
+    if (pattern.endsWith("*")) {
+      return path.startsWith(pattern.slice(0, -1))
+    }
+    return path === pattern
+  })
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Check if the path is public
-  const isPublicPath = publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+  // Skip middleware for static files and API routes except specific ones
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon.ico") ||
+    (pathname.startsWith("/api") && !pathname.startsWith("/api/auth") && !pathname.startsWith("/api/user"))
+  ) {
+    return NextResponse.next()
+  }
 
-  // Get the session cookie
-  const sessionCookie = request.cookies.get("session_token")?.value
+  // Check if the route is public
+  const isPublicRoute =
+    matchesPattern(pathname, publicRoutes) ||
+    pathname.startsWith("/reset-password/") ||
+    pathname.startsWith("/verify-email/")
 
-  // If the path is not public and there's no session cookie, redirect to login
-  if (!isPublicPath && !sessionCookie) {
+  if (isPublicRoute) {
+    return NextResponse.next()
+  }
+
+  // Get session token from cookies
+  const sessionToken = request.cookies.get("session_token")?.value
+
+  // If no session token, redirect to login
+  if (!sessionToken) {
     const url = new URL("/login", request.url)
-    url.searchParams.set("callbackUrl", encodeURI(request.url))
-    url.searchParams.set("error", encodeURIComponent("You must be logged in to access this page"))
+    url.searchParams.set("callbackUrl", pathname)
     return NextResponse.redirect(url)
   }
 
-  // If there's a session cookie and trying to access login, redirect to dashboard
-  if (sessionCookie && pathname === "/login") {
-    return NextResponse.redirect(new URL("/dashboard", request.url))
-  }
+  // Check if user is authenticated and email is verified
+  try {
+    const response = await fetch(`${request.nextUrl.origin}/api/user`, {
+      headers: {
+        cookie: `session_token=${sessionToken}`,
+      },
+    })
 
-  return NextResponse.next()
+    if (!response.ok) {
+      // If not authenticated, redirect to login
+      const url = new URL("/login", request.url)
+      url.searchParams.set("callbackUrl", pathname)
+      return NextResponse.redirect(url)
+    }
+
+    const userData = await response.json()
+
+    // If email is not verified and the route requires verification
+    if (!userData.emailVerified && !matchesPattern(pathname, authRoutes)) {
+      return NextResponse.redirect(new URL("/verify-email", request.url))
+    }
+
+    return NextResponse.next()
+  } catch (error) {
+    console.error("Middleware error:", error)
+    // On error, redirect to login
+    const url = new URL("/login", request.url)
+    url.searchParams.set("callbackUrl", pathname)
+    return NextResponse.redirect(url)
+  }
 }
 
+// Configure the middleware to run on specific paths
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for:
+     * Match all request paths except:
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public files (public directory)
      */
-    "/((?!_next/static|_next/image|favicon.ico|public).*)",
+    "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 }

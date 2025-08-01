@@ -3,18 +3,9 @@
 import { redirect } from "next/navigation"
 import { z } from "zod"
 import prisma from "@/lib/prisma"
-import {
-  hashPassword,
-  comparePasswords,
-  createSession,
-  logout,
-  sendVerificationEmail,
-  sendPasswordResetEmail,
-  verifyEmail,
-  verifyPasswordResetToken,
-  resetPassword,
-} from "@/lib/auth"
-import { cookies } from "next/headers"
+import { createHash, randomBytes } from "crypto"
+import { db } from "@/lib/db"
+import { sendEmail } from "@/lib/email"
 
 const registerSchema = z.object({
   username: z.string().min(3).max(50),
@@ -43,24 +34,10 @@ const resetPasswordSchema = z
 
 // Get the current session
 export async function getSession() {
-  const cookieStore = await cookies()
-  const sessionToken = cookieStore.get("session_token")?.value
-
-  if (!sessionToken) {
-    return null
-  }
-
   try {
-    const session = await prisma.session.findUnique({
-      where: { token: sessionToken },
-      include: { user: true },
-    })
-
-    if (!session || session.expiresAt < new Date()) {
-      return null
-    }
-
-    return session
+    // Use dynamic import to avoid the static import error
+    const authModule = await import("@/lib/auth")
+    return authModule.getSession()
   } catch (error) {
     console.error("Error getting session:", error)
     return null
@@ -69,8 +46,24 @@ export async function getSession() {
 
 // Get the current user
 export async function getCurrentUser() {
-  const session = await getSession()
-  return session?.user || null
+  try {
+    const authModule = await import("@/lib/auth")
+    return authModule.getCurrentUser()
+  } catch (error) {
+    console.error("Error getting current user:", error)
+    return null
+  }
+}
+
+// Check if email is verified
+export async function isEmailVerified() {
+  try {
+    const authModule = await import("@/lib/auth")
+    return authModule.isEmailVerified()
+  } catch (error) {
+    console.error("Error checking email verification:", error)
+    return false
+  }
 }
 
 // Get subscription info for the current user
@@ -114,22 +107,22 @@ export async function getCurrentUserSubscriptionInfo() {
 }
 
 export async function registerUser(formData: FormData) {
-  const validatedFields = registerSchema.safeParse({
-    username: formData.get("username"),
-    email: formData.get("email"),
-    password: formData.get("password"),
-  })
-
-  if (!validatedFields.success) {
-    return {
-      success: false,
-      message: "Invalid input. Please check your information.",
-    }
-  }
-
-  const { username, email, password } = validatedFields.data
-
   try {
+    const validatedFields = registerSchema.safeParse({
+      username: formData.get("username"),
+      email: formData.get("email"),
+      password: formData.get("password"),
+    })
+
+    if (!validatedFields.success) {
+      return {
+        success: false,
+        message: "Invalid input. Please check your information.",
+      }
+    }
+
+    const { username, email, password } = validatedFields.data
+
     // Check if user already exists
     const existingUser = await prisma.user.findFirst({
       where: {
@@ -144,8 +137,11 @@ export async function registerUser(formData: FormData) {
       }
     }
 
+    // Use dynamic import for auth functions
+    const authModule = await import("@/lib/auth")
+
     // Create new user
-    const passwordHash = await hashPassword(password)
+    const passwordHash = await authModule.hashPassword(password)
     const user = await prisma.user.create({
       data: {
         username,
@@ -155,13 +151,30 @@ export async function registerUser(formData: FormData) {
       },
     })
 
+    console.log("User created successfully:", user.id)
+
     // Send verification email
-    await sendVerificationEmail(user)
+    try {
+      console.log("Sending verification email to:", email)
+      const emailSent = await authModule.sendVerificationEmail(user)
+
+      if (!emailSent) {
+        console.error("Failed to send verification email")
+      } else {
+        console.log("Verification email sent successfully")
+      }
+    } catch (emailError) {
+      console.error("Error sending verification email:", emailError)
+      // Continue with registration even if email fails
+    }
 
     // Create session
-    await createSession(user.id)
+    await authModule.createSession(user.id)
 
-    return { success: true }
+    return {
+      success: true,
+      requireVerification: true,
+    }
   } catch (error) {
     console.error("Registration error:", error)
     return {
@@ -172,21 +185,21 @@ export async function registerUser(formData: FormData) {
 }
 
 export async function loginUser(formData: FormData) {
-  const validatedFields = loginSchema.safeParse({
-    username: formData.get("username"),
-    password: formData.get("password"),
-  })
-
-  if (!validatedFields.success) {
-    return {
-      success: false,
-      message: "Invalid username or password.",
-    }
-  }
-
-  const { username, password } = validatedFields.data
-
   try {
+    const validatedFields = loginSchema.safeParse({
+      username: formData.get("username"),
+      password: formData.get("password"),
+    })
+
+    if (!validatedFields.success) {
+      return {
+        success: false,
+        message: "Invalid username or password.",
+      }
+    }
+
+    const { username, password } = validatedFields.data
+
     // Find user by username or email
     const user = await prisma.user.findFirst({
       where: {
@@ -204,8 +217,11 @@ export async function loginUser(formData: FormData) {
       }
     }
 
+    // Use dynamic import for auth functions
+    const authModule = await import("@/lib/auth")
+
     // Verify password
-    const passwordValid = await comparePasswords(password, user.passwordHash)
+    const passwordValid = await authModule.comparePasswords(password, user.passwordHash)
     if (!passwordValid) {
       return {
         success: false,
@@ -214,14 +230,14 @@ export async function loginUser(formData: FormData) {
     }
 
     // Create session
-    await createSession(user.id)
+    await authModule.createSession(user.id)
 
     // Log successful login
     console.log(`User ${user.username} logged in successfully`)
 
     return {
       success: true,
-      emailVerified: true, // Always return true
+      emailVerified: user.emailVerified,
     }
   } catch (error) {
     console.error("Login error:", error)
@@ -233,48 +249,73 @@ export async function loginUser(formData: FormData) {
 }
 
 export async function logoutUser() {
-  await logout()
-  redirect("/")
+  try {
+    const authModule = await import("@/lib/auth")
+    await authModule.logout()
+    redirect("/")
+  } catch (error) {
+    console.error("Logout error:", error)
+    redirect("/")
+  }
 }
 
-export async function resendVerificationEmail() {
+export async function resendVerificationEmail(userId: string) {
   try {
-    const user = await prisma.user.findFirst({
-      where: {
-        id: (await getSession())?.userId,
-        emailVerified: false,
-      },
+    // Get user
+    const user = await db.user.findUnique({
+      where: { id: userId },
     })
 
     if (!user) {
-      return {
-        success: false,
-        message: "User not found or already verified.",
-      }
+      return { success: false, message: "User not found" }
     }
 
-    const emailSent = await sendVerificationEmail(user)
-
-    if (!emailSent) {
-      return {
-        success: false,
-        message: "Failed to send verification email. Please try again.",
-      }
+    if (user.emailVerified) {
+      return { success: false, message: "Email already verified" }
     }
 
-    return { success: true }
+    // Generate verification token
+    const token = randomBytes(32).toString("hex")
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+
+    // Save token
+    await db.verificationToken.create({
+      data: {
+        identifier: user.email,
+        token: createHash("sha256").update(token).digest("hex"),
+        expires,
+      },
+    })
+
+    // Send verification email
+    const verificationUrl = `${process.env.NEXTAUTH_URL}/verify-email/${token}`
+
+    const emailResult = await sendEmail({
+      to: user.email,
+      subject: "Verify your email address",
+      template: "verification",
+      data: {
+        verificationUrl,
+        name: user.name || user.email,
+      },
+    })
+
+    if (!emailResult.success) {
+      console.error("Failed to send verification email:", emailResult.error)
+      return { success: false, message: "Failed to send verification email" }
+    }
+
+    return { success: true, message: "Verification email sent" }
   } catch (error) {
-    console.error("Resend verification error:", error)
-    return {
-      success: false,
-      message: "An error occurred while resending the verification email.",
-    }
+    console.error("Error resending verification email:", error)
+    return { success: false, message: "An error occurred" }
   }
 }
 
 export async function verifyUserEmail(token: string) {
   try {
-    const verified = await verifyEmail(token)
+    const authModule = await import("@/lib/auth")
+    const verified = await authModule.verifyEmail(token)
 
     if (!verified) {
       return {
@@ -294,21 +335,23 @@ export async function verifyUserEmail(token: string) {
 }
 
 export async function forgotPassword(formData: FormData) {
-  const validatedFields = forgotPasswordSchema.safeParse({
-    email: formData.get("email"),
-  })
-
-  if (!validatedFields.success) {
-    return {
-      success: false,
-      message: "Please enter a valid email address.",
-    }
-  }
-
-  const { email } = validatedFields.data
-
   try {
-    const emailSent = await sendPasswordResetEmail(email)
+    const validatedFields = forgotPasswordSchema.safeParse({
+      email: formData.get("email"),
+    })
+
+    if (!validatedFields.success) {
+      return {
+        success: false,
+        message: "Please enter a valid email address.",
+      }
+    }
+
+    const { email } = validatedFields.data
+    console.log("Processing forgot password request for:", email)
+
+    const authModule = await import("@/lib/auth")
+    await authModule.sendPasswordResetEmail(email)
 
     // Always return success even if email doesn't exist for security reasons
     return { success: true }
@@ -322,22 +365,23 @@ export async function forgotPassword(formData: FormData) {
 }
 
 export async function resetUserPassword(token: string, formData: FormData) {
-  const validatedFields = resetPasswordSchema.safeParse({
-    password: formData.get("password"),
-    confirmPassword: formData.get("confirmPassword"),
-  })
-
-  if (!validatedFields.success) {
-    return {
-      success: false,
-      message: validatedFields.error.errors[0].message,
-    }
-  }
-
-  const { password } = validatedFields.data
-
   try {
-    const userId = await verifyPasswordResetToken(token)
+    const validatedFields = resetPasswordSchema.safeParse({
+      password: formData.get("password"),
+      confirmPassword: formData.get("confirmPassword"),
+    })
+
+    if (!validatedFields.success) {
+      return {
+        success: false,
+        message: validatedFields.error.errors[0].message,
+      }
+    }
+
+    const { password } = validatedFields.data
+
+    const authModule = await import("@/lib/auth")
+    const userId = await authModule.verifyPasswordResetToken(token)
 
     if (!userId) {
       return {
@@ -346,7 +390,7 @@ export async function resetUserPassword(token: string, formData: FormData) {
       }
     }
 
-    const success = await resetPassword(userId, password)
+    const success = await authModule.resetPassword(userId, password)
 
     if (!success) {
       return {
@@ -362,5 +406,18 @@ export async function resetUserPassword(token: string, formData: FormData) {
       success: false,
       message: "An error occurred during password reset.",
     }
+  }
+}
+
+// Require verified email for protected actions
+export async function requireVerifiedEmail() {
+  try {
+    const authModule = await import("@/lib/auth")
+    return authModule.requireVerifiedEmail()
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Email verification required")) {
+      redirect("/verify-email")
+    }
+    throw error
   }
 }
